@@ -1,0 +1,17 @@
+# CLI and config
+typer
+python-dotenv
+pydantic
+PyYAML
+tqdm
+
+# Video processing
+moviepy
+ffmpeg-python
+opencv-python-headless
+numpy
+Pillow
+
+# LLM access
+litellm
+openai
