@@ -1,0 +1,31 @@
+{
+  "name": "video-llm-dev",
+  "build": {
+    "context": "..",
+    "dockerfile": "../Dockerfile"
+  },
+  "workspaceFolder": "/app",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/app,type=bind",
+  "mounts": [
+    "source=video-llm-dev-pip-cache,target=/root/.cache/pip,type=volume"
+  ],
+  "runArgs": [
+    "--init"
+  ],
+  "postCreateCommand": "pip install -r requirements.txt",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/venv/bin/python"
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  }
+}
+
+sudo systemctl enable --now containerd docker docker.socket
+sudo systemctl restart docker.socket docker
