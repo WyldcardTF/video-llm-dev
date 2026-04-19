@@ -46,9 +46,13 @@ class Settings:
     pipeline_artifacts_dir: Path
     frames_dir_name: str
     audio_dir_name: str
+    generated_assets_dir_name: str
     video_analyses_filename: str
     style_profile_filename: str
+    asset_inventory_filename: str
+    generated_assets_manifest_filename: str
     shot_plan_filename: str
+    continuity_profile_filename: str
     resolved_run_config_filename: str
     openai_api_key: str | None
 
@@ -58,8 +62,20 @@ class Settings:
     def style_profile_path(self, project_dir: Path) -> Path:
         return project_dir / self.style_profile_filename
 
+    def asset_inventory_path(self, project_dir: Path) -> Path:
+        return project_dir / self.asset_inventory_filename
+
+    def generated_assets_dir(self, project_dir: Path) -> Path:
+        return project_dir / self.generated_assets_dir_name
+
+    def generated_assets_manifest_path(self, project_dir: Path) -> Path:
+        return project_dir / self.generated_assets_manifest_filename
+
     def shot_plan_path(self, project_dir: Path) -> Path:
         return project_dir / self.shot_plan_filename
+
+    def continuity_profile_path(self, project_dir: Path) -> Path:
+        return project_dir / self.continuity_profile_filename
 
     def resolved_run_config_path(self, project_dir: Path) -> Path:
         return project_dir / self.resolved_run_config_filename
@@ -87,11 +103,22 @@ def get_settings() -> Settings:
         pipeline_artifacts_dir=pipeline_artifacts_dir,
         frames_dir_name=_env_text("FRAMES_DIR_NAME", "frames") or "frames",
         audio_dir_name=_env_text("AUDIO_DIR_NAME", "audio") or "audio",
+        generated_assets_dir_name=_env_text("GENERATED_ASSETS_DIR_NAME", "generated_assets")
+        or "generated_assets",
         video_analyses_filename=_env_text("VIDEO_ANALYSES_FILENAME", "video_analyses.json")
         or "video_analyses.json",
         style_profile_filename=_env_text("STYLE_PROFILE_FILENAME", "style_profile.json")
         or "style_profile.json",
+        asset_inventory_filename=_env_text("ASSET_INVENTORY_FILENAME", "asset_inventory.json")
+        or "asset_inventory.json",
+        generated_assets_manifest_filename=_env_text(
+            "GENERATED_ASSETS_MANIFEST_FILENAME",
+            "generated_assets.json",
+        )
+        or "generated_assets.json",
         shot_plan_filename=_env_text("SHOT_PLAN_FILENAME", "shot_plan.json") or "shot_plan.json",
+        continuity_profile_filename=_env_text("CONTINUITY_PROFILE_FILENAME", "continuity_profile.json")
+        or "continuity_profile.json",
         resolved_run_config_filename=_env_text("RESOLVED_RUN_CONFIG_FILENAME", "resolved_run_config.json")
         or "resolved_run_config.json",
         openai_api_key=_env_text("OPENAI_API_KEY"),

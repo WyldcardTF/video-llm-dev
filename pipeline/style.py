@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
 
+from .io_utils import read_json
 from .models import StyleProfile, VideoAnalysis
 
 
@@ -56,4 +58,23 @@ def build_style_profile(analyses: list[VideoAnalysis]) -> StyleProfile:
         voice_style=voice_style,
         style_summary=style_summary,
         reference_images=reference_images,
+    )
+
+
+def load_style_profile(path: Path) -> StyleProfile:
+    payload = read_json(path.expanduser().resolve())
+    if not isinstance(payload, dict):
+        raise ValueError(f"Style profile file must contain a JSON object: {path}")
+    return StyleProfile(
+        source_videos=[str(item) for item in payload.get("source_videos", [])],
+        target_width=int(payload.get("target_width", 1280)),
+        target_height=int(payload.get("target_height", 720)),
+        pacing_label=str(payload.get("pacing_label", "medium")),
+        preferred_shot_duration_s=float(payload.get("preferred_shot_duration_s", 4.0)),
+        average_brightness=float(payload.get("average_brightness", 0.5)),
+        average_motion=float(payload.get("average_motion", 0.0)),
+        color_palette=[str(item) for item in payload.get("color_palette", [])],
+        voice_style=str(payload.get("voice_style", "voice analysis not available")),
+        style_summary=str(payload.get("style_summary", "")),
+        reference_images=[str(item) for item in payload.get("reference_images", [])],
     )

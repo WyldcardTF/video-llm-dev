@@ -4,6 +4,10 @@ This is the practical guide for running the pipeline from the command line.
 
 If you want the architecture and code-level explanation, use [tutorial.md](./tutorial.md).
 
+One important truth up front: in this prototype, `train` does not fine-tune a generative model's weights. It prepares reusable style artifacts from your references so later generation can use them consistently.
+
+Another important truth: the system now has an optional real generation stage through OpenAI image or video backends, but it is still not a full text-to-animation engine.
+
 ## What You Need To Know First
 
 The pipeline expects three things:
@@ -27,7 +31,7 @@ The CLI commands you will use most are:
 
 ```bash
 python -m pipeline show-run-config --run-config /app/run_parameters.yaml
-python -m pipeline analyze --run-config /app/run_parameters.yaml
+python -m pipeline train --run-config /app/run_parameters.yaml
 python -m pipeline generate --run-config /app/run_parameters.yaml
 python -m pipeline run --run-config /app/run_parameters.yaml
 ```
@@ -35,9 +39,9 @@ python -m pipeline run --run-config /app/run_parameters.yaml
 What they do:
 
 1. `show-run-config` resolves and prints the run configuration
-2. `analyze` runs discovery and analysis only
-3. `generate` runs the full pipeline and renders a draft video
-4. `run` is just a shortcut for `generate`
+2. `train` discovers videos, analyzes them, inventories assets, and writes reusable intermediate artifacts
+3. `generate` loads those trained artifacts, builds continuity-aware prompts and shot metadata, and renders a draft video
+4. `run` is a convenience command that runs `train` and then `generate`
 
 ## Step 1: Inspect The Current Run
 
@@ -60,6 +64,9 @@ What to check:
 7. `analysis.sample_frames`
 8. `planning.honor_script_timing`
 9. `render.fps`
+10. `generation.backend`
+11. `models.image_generation_model`
+12. `models.video_generation_model`
 
 ## Step 2: Inspect The Input Bundle
 
@@ -165,12 +172,12 @@ Useful reminder:
 3. `text overlay` becomes the rendered on-screen copy
 4. extra fields are preserved as metadata
 
-## Step 5: Run Analysis First
+## Step 5: Train First
 
-Run the analysis stage before the full generate step:
+Run the training stage before generation:
 
 ```bash
-python -m pipeline analyze --run-config /app/run_parameters.yaml
+python -m pipeline train --run-config /app/run_parameters.yaml
 ```
 
 This command:
@@ -178,7 +185,8 @@ This command:
 1. validates the required reference videos
 2. discovers supporting videos
 3. analyzes style and audio
-4. writes analysis artifacts
+4. inventories available assets in the bundle
+5. writes reusable intermediate artifacts for generation
 
 Artifacts to inspect:
 
@@ -187,6 +195,7 @@ find /app/artifacts/sample1 -maxdepth 3 -type f | sort
 python -m json.tool /app/artifacts/sample1/resolved_run_config.json | sed -n '1,220p'
 python -m json.tool /app/artifacts/sample1/video_analyses.json | sed -n '1,220p'
 python -m json.tool /app/artifacts/sample1/style_profile.json | sed -n '1,220p'
+python -m json.tool /app/artifacts/sample1/asset_inventory.json | sed -n '1,220p'
 find /app/artifacts/sample1/frames -maxdepth 2 -type f | sort
 ```
 
@@ -196,11 +205,12 @@ What to look for:
 2. the correct required video source
 3. useful sample frames
 4. plausible brightness, motion, and palette values
-5. transcription behavior that matches your expectation
+5. asset inventory entries that match the files you actually want the system to use
+6. transcription behavior that matches your expectation
 
 ## Step 6: Run The Full Generate Flow
 
-Once the analysis output looks reasonable, run:
+Once the training output looks reasonable, run:
 
 ```bash
 python -m pipeline generate --run-config /app/run_parameters.yaml
@@ -208,14 +218,18 @@ python -m pipeline generate --run-config /app/run_parameters.yaml
 
 This command:
 
-1. runs analysis again
-2. loads the script
-3. creates a shot plan
-4. renders a draft video
+1. loads the trained style profile from `artifacts/<artifact_subdir>/style_profile.json`
+2. loads the trained asset inventory from `artifacts/<artifact_subdir>/asset_inventory.json`
+3. loads the script
+4. creates a continuity profile and motion-aware shot plan
+5. optionally synthesizes shot assets through the configured generation backend
+6. renders a draft video that prefers generated assets first and source-video excerpts second
 
 Inspect the outputs:
 
 ```bash
+python -m json.tool /app/artifacts/sample1/generated_assets.json | sed -n '1,220p'
+python -m json.tool /app/artifacts/sample1/continuity_profile.json | sed -n '1,220p'
 python -m json.tool /app/artifacts/sample1/shot_plan.json | sed -n '1,260p'
 ls -lh "/app/Video Output"
 ```
@@ -226,6 +240,56 @@ If `ffprobe` is available:
 ffprobe "/app/Video Output/sample1_draft.mp4"
 ```
 
+If `generate` fails before rendering, the most common cause is that `train` has not been run yet for the same `artifact_subdir`.
+
+What to look for in `shot_plan.json` now:
+
+1. `source_asset_path`
+2. `source_asset_type`
+3. `media_kind`
+4. `clip_start_s`
+5. `motion_strategy`
+6. `continuity_notes`
+7. `generation_prompt`
+
+If you turned on a real generation backend, also inspect:
+
+1. `generated_assets.json`
+2. the files inside `artifacts/<artifact_subdir>/generated_assets/`
+
+## Step 6A: Turn On A Real Generation Backend
+
+If you want the pipeline to create new shot assets instead of only reusing existing footage, configure a generation backend in [`run_parameters.yaml`](../run_parameters.yaml).
+
+Image generation:
+
+```yaml
+generation:
+  backend: openai_image
+  use_reference_input: true
+
+models:
+  image_generation_model: gpt-image-1
+```
+
+Video generation:
+
+```yaml
+generation:
+  backend: openai_video
+  use_reference_input: true
+  allow_fallback_to_draft: true
+
+models:
+  video_generation_model: sora-2
+```
+
+What you need for this to work:
+
+1. `OPENAI_API_KEY` in `.env`
+2. access to the configured model
+3. the understanding that per-shot generation can be slower and more expensive than the draft compositor
+
 ## Step 7: Override Things From The CLI
 
 You do not always need to edit YAML first. You can override a few important paths directly.
@@ -233,7 +297,7 @@ You do not always need to edit YAML first. You can override a few important path
 ### Override The Source Path
 
 ```bash
-python -m pipeline analyze \
+python -m pipeline train \
   --run-config /app/run_parameters.yaml \
   --source "/app/Video Input/Blonde Blazer Romance/reference_videos"
 ```
@@ -259,7 +323,7 @@ python -m pipeline generate \
 ### Override The Artifact Directory
 
 ```bash
-python -m pipeline analyze \
+python -m pipeline train \
   --run-config /app/run_parameters.yaml \
   --project-dir /app/artifacts/session
 ```
@@ -272,7 +336,7 @@ A solid working loop for day-to-day iteration is:
 2. update `run_parameters.yaml`
 3. update the script
 4. inspect the resolved config
-5. run `analyze`
+5. run `train`
 6. inspect the artifacts
 7. run `generate`
 8. inspect the draft video
@@ -282,9 +346,12 @@ Concrete command sequence:
 ```bash
 python -m pipeline show-run-config --run-config /app/run_parameters.yaml
 python -m json.tool /app/Scripts/sample1.json
-python -m pipeline analyze --run-config /app/run_parameters.yaml
+python -m pipeline train --run-config /app/run_parameters.yaml
 python -m json.tool /app/artifacts/sample1/style_profile.json | sed -n '1,220p'
+python -m json.tool /app/artifacts/sample1/asset_inventory.json | sed -n '1,220p'
 python -m pipeline generate --run-config /app/run_parameters.yaml
+python -m json.tool /app/artifacts/sample1/generated_assets.json | sed -n '1,220p'
+python -m json.tool /app/artifacts/sample1/continuity_profile.json | sed -n '1,220p'
 python -m json.tool /app/artifacts/sample1/shot_plan.json | sed -n '1,260p'
 ls -lh "/app/Video Output"
 ```
@@ -329,6 +396,25 @@ Tune:
 3. `planning.shot_duration_max_s`
 4. `planning.fallback_transition`
 
+### Prepare Better Motion Inputs
+
+If you want visibly stronger results, improve the bundle itself:
+
+1. add multiple reference videos with different shot sizes and movement types
+2. add closeup and b-roll clips that actually match the scenes in the script
+3. keep the same subject, wardrobe, and lighting across those clips
+4. use structured scene metadata like `subject`, `wardrobe`, `mood`, and `preferred_asset_types`
+
+### Turn On Generated Assets
+
+Tune:
+
+1. `generation.backend`
+2. `generation.use_reference_input`
+3. `generation.allow_fallback_to_draft`
+4. `models.image_generation_model`
+5. `models.video_generation_model`
+
 ## Step 10: Troubleshooting
 
 ### Error: required video missing
@@ -365,9 +451,30 @@ Fixes:
 2. add supporting video pools
 3. inspect `style_profile.json` and sampled frames before generating again
 
+### The output looks like panned still images
+
+Cause:
+
+The system falls back to still-image treatment when it cannot find or use a good video asset for the scene, or when `generation.backend` is still set to `draft_compositor`. It is also still not a full long-form animation model.
+
+What that means:
+
+1. the system is learning style signals and selecting source motion, not inventing full animation from scratch
+2. `train` prepares the style profile and asset inventory, but it does not produce new motion by itself
+3. if you do not enable `openai_image` or `openai_video`, the pipeline will stay in draft-compositor mode
+4. even with `openai_video`, the result quality still depends on prompt quality, model access, and reference inputs
+
+Fixes:
+
+1. add more actual moving footage to the bundle
+2. make `preferred_asset_types` point at video pools that really exist
+3. inspect `shot_plan.json` and confirm the selected `media_kind` is `video` where you expect motion
+4. turn on `generation.backend: openai_video` if you want the pipeline to request newly generated motion
+5. inspect `generated_assets.json` and confirm shots were actually generated instead of falling back
+
 ### Draft video is structurally correct but visually simple
 
-That is expected with the current renderer. The present renderer is a draft renderer based on sampled reference images plus overlay text, not a final generative video engine.
+That is still expected to some degree. Even with generated assets enabled, the repo is still assembling per-shot clips into a draft rather than running a full filmmaking stack with character control, layout control, and high-end temporal supervision.
 
 ## Step 11: When To Read The Deep Tutorial
 
@@ -385,8 +492,9 @@ If you only need the shortest useful run sequence, it is this:
 
 ```bash
 python -m pipeline show-run-config --run-config /app/run_parameters.yaml
-python -m pipeline analyze --run-config /app/run_parameters.yaml
+python -m pipeline train --run-config /app/run_parameters.yaml
 python -m pipeline generate --run-config /app/run_parameters.yaml
+python -m json.tool /app/artifacts/sample1/generated_assets.json | sed -n '1,120p'
 ls -lh "/app/Video Output"
 ```
 

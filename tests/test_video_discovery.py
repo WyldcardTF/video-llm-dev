@@ -128,9 +128,13 @@ def _build_settings(temp_root: Path) -> Settings:
         pipeline_artifacts_dir=app_base_dir / "artifacts",
         frames_dir_name="frames",
         audio_dir_name="audio",
+        generated_assets_dir_name="generated_assets",
         video_analyses_filename="video_analyses.json",
         style_profile_filename="style_profile.json",
+        asset_inventory_filename="asset_inventory.json",
+        generated_assets_manifest_filename="generated_assets.json",
         shot_plan_filename="shot_plan.json",
+        continuity_profile_filename="continuity_profile.json",
         resolved_run_config_filename="resolved_run_config.json",
         openai_api_key=None,
     )

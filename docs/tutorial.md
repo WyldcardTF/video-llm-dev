@@ -8,14 +8,17 @@ If you want the practical runbook instead, use [walkthrough.md](./walkthrough.md
 
 At a high level, the pipeline turns a project bundle plus a script into a draft video:
 
-`input bundle -> video discovery -> analysis -> style profile -> script loading -> shot plan -> draft render`
+`input bundle -> video discovery -> train artifacts -> script loading -> shot plan -> optional generated assets -> draft render`
 
-The current prototype is not yet a full generative video system. It does four concrete things today:
+The current prototype is not yet a full generative video system. It does five concrete things today:
 
 1. Finds videos inside a selected project bundle.
-2. Analyzes those videos for style and audio signals.
-3. Converts a script into a structured shot plan.
-4. Renders a draft `.mp4` using sampled reference frames and overlay text.
+2. Trains reusable style artifacts from those videos by analyzing style and audio signals and inventorying bundle assets.
+3. Converts a script into a structured shot plan using those trained artifacts plus continuity rules.
+4. Optionally synthesizes new shot assets through an OpenAI image or video backend.
+5. Renders a draft `.mp4` using generated assets first, source-video excerpts second, and still-image motion only as fallback.
+
+Important honesty note: in this prototype, `train` does not fine-tune a generative model's weights. It means "prepare reusable style-conditioning artifacts from the references."
 
 The most important design idea is that the repo splits stable environment configuration from per-run creative configuration:
 
@@ -35,8 +38,9 @@ The files worth understanding first are:
 6. [`pipeline/style.py`](../pipeline/style.py) aggregates many `VideoAnalysis` objects into one `StyleProfile`.
 7. [`pipeline/script_io.py`](../pipeline/script_io.py) loads JSON or text scripts.
 8. [`pipeline/planning.py`](../pipeline/planning.py) turns scenes into a `GenerationPlan`.
-9. [`pipeline/render.py`](../pipeline/render.py) renders the final draft video.
-10. [`pipeline/models.py`](../pipeline/models.py) defines the handoff dataclasses used between stages.
+9. [`pipeline/generation.py`](../pipeline/generation.py) optionally synthesizes generated images or video clips per shot.
+10. [`pipeline/render.py`](../pipeline/render.py) renders the final draft video.
+11. [`pipeline/models.py`](../pipeline/models.py) defines the handoff dataclasses used between stages.
 
 ## Stage 1: Global Settings From `.env`
 
@@ -77,9 +81,10 @@ The loader in [`pipeline/run_config.py`](../pipeline/run_config.py) builds a `Ru
 1. `analysis`
 2. `planning`
 3. `render`
-4. `models`
-5. `selection`
-6. `workflow`
+4. `generation`
+5. `models`
+6. `selection`
+7. `workflow`
 
 Here is the shape of the main object:
 
@@ -95,6 +100,8 @@ class RunParameters:
     voiceover_file: str | None
     analysis_video_subfolders: list[str]
     asset_subfolders: dict[str, str]
+    generation: GenerationParameters
+    models: ModelParameters
 ```
 
 ### The Most Important Fields
@@ -120,6 +127,10 @@ This decides where analysis artifacts and plans are written under `artifacts/`.
 `analysis_video_subfolders`
 
 This is a priority list of video pools inside the bundle. It does not mean every folder must exist or contain videos.
+
+`generation.backend`
+
+This decides whether `generate` stays local in `draft_compositor` mode or calls a real generation backend such as `openai_image` or `openai_video`.
 
 `asset_subfolders.reference_videos`
 
@@ -214,7 +225,7 @@ The CLI is defined in [`pipeline/cli.py`](../pipeline/cli.py).
 
 The commands are:
 
-1. `python -m pipeline analyze`
+1. `python -m pipeline train`
 2. `python -m pipeline generate`
 3. `python -m pipeline run`
 4. `python -m pipeline show-run-config`
@@ -234,25 +245,26 @@ Use it to verify:
 3. the resolved output path
 4. the selected analysis and planning parameters
 
-### `analyze`
+### `train`
 
-This command stops after analysis and style aggregation.
+This command stops after discovery, analysis, and style aggregation.
 
 ```bash
-python -m pipeline analyze --run-config /app/run_parameters.yaml
+python -m pipeline train --run-config /app/run_parameters.yaml
 ```
 
 Outputs:
 
 1. `video_analyses.json`
 2. `style_profile.json`
-3. sampled frames
-4. optionally a transcription sample
-5. `resolved_run_config.json`
+3. `asset_inventory.json`
+4. sampled frames
+5. optionally a transcription sample
+6. `resolved_run_config.json`
 
 ### `generate`
 
-This is the full flow:
+This is the script-to-video stage:
 
 ```bash
 python -m pipeline generate --run-config /app/run_parameters.yaml
@@ -260,18 +272,33 @@ python -m pipeline generate --run-config /app/run_parameters.yaml
 
 It performs:
 
-1. input discovery
-2. analysis
-3. style aggregation
-4. script loading
+1. load the trained style profile from artifacts
+2. load the trained asset inventory
+3. script loading
+4. build a continuity profile
 5. planning
-6. rendering
+6. optional generated-asset synthesis
+7. rendering
 
 ### `run`
 
-This is just a shorthand for `generate`.
+This is a convenience command that runs `train` and then `generate`.
 
-## Stage 6: Video Analysis
+## Stage 6: Training Artifacts
+
+The `train` command is the first half of the intended workflow.
+
+Its job is to:
+
+1. discover the reference and supporting videos
+2. analyze them
+3. aggregate a style profile
+4. inventory the bundle assets
+5. persist reusable artifacts for later generation
+
+That is why `generate` no longer needs to rediscover or reanalyze the videos every time.
+
+## Stage 7: Video Analysis
 
 The analyzer lives in [`pipeline/analyze.py`](../pipeline/analyze.py). It opens each video with OpenCV and extracts:
 
@@ -316,7 +343,7 @@ Audio analysis is done with `ffmpeg`. The pipeline extracts mono PCM samples, th
 
 If transcription is enabled and an API key is available, it also sends an extracted audio sample to OpenAI transcription.
 
-## Stage 7: Style Aggregation
+## Stage 8: Style Aggregation
 
 The style aggregation step lives in [`pipeline/style.py`](../pipeline/style.py).
 
@@ -345,7 +372,20 @@ else:
 
 This matters because the planner uses the style profile later when it fills in missing duration or transition decisions.
 
-## Stage 8: Script Loading
+## Stage 9: Asset Inventory
+
+The asset inventory step records which bundle assets are available for later selection.
+
+Today it tracks:
+
+1. analyzed videos as reusable video assets
+2. discovered image assets inside configured asset pools
+3. asset type labels such as `reference_videos`, `broll_images`, or `portraits`
+4. basic metadata like width, height, duration, and path tags
+
+The inventory is written to `asset_inventory.json` during `train`, and `generate` uses it to choose source assets scene by scene.
+
+## Stage 10: Script Loading
 
 The script loader is in [`pipeline/script_io.py`](../pipeline/script_io.py).
 
@@ -399,7 +439,7 @@ The loader can parse:
 
 If `duration` is missing but `time_start` and `time_end` exist, it derives duration from them.
 
-## Stage 9: Planning
+## Stage 11: Planning
 
 The planning logic lives in [`pipeline/planning.py`](../pipeline/planning.py).
 
@@ -412,10 +452,15 @@ Each shot plan item contains:
 3. duration
 4. visual direction
 5. reference image
-6. overlay text
-7. transition
-8. timing metadata
-9. preserved scene metadata
+6. selected source asset path and asset type
+7. media kind and clip window
+8. motion strategy
+9. overlay text
+10. transition
+11. continuity notes
+12. generation prompt
+13. timing metadata
+14. preserved scene metadata
 
 ### Duration Resolution
 
@@ -449,7 +494,75 @@ The current planner builds a text prompt-like description for each shot. It comb
 
 This is important because the render stage is simple today, but the plan is already structured enough for future image or video generation stages.
 
-## Stage 10: Rendering
+### Continuity Profile
+
+The planner now also builds a continuity profile from script metadata and recurring scene metadata.
+
+That profile captures:
+
+1. recurring subjects
+2. recurring wardrobe
+3. recurring moods
+4. shared style keywords
+5. continuity rules
+6. positive and negative prompt scaffolding
+
+This is the first step toward keeping multiple shots inside one coherent film world.
+
+## Stage 12: Optional Generated Asset Synthesis
+
+The generated-asset stage lives in [`pipeline/generation.py`](../pipeline/generation.py).
+
+It runs after planning and before rendering. Its job is to turn each `ShotPlanItem` into a new generated image or generated video clip when you opt into a real backend.
+
+The current supported backends are:
+
+1. `draft_compositor`
+2. `openai_image`
+3. `openai_video`
+4. `auto`
+
+`draft_compositor` means "do not call an external generation API."
+
+`auto` means:
+
+1. use `openai_video` if `models.video_generation_model` is set
+2. else use `openai_image` if `models.image_generation_model` is set
+3. else stay on `draft_compositor`
+
+The code path looks like this:
+
+```python
+plan, generated_assets_manifest = generate_assets_for_plan(
+    plan=plan,
+    style_profile=style_profile,
+    run_parameters=run_parameters,
+    settings=settings,
+    project_dir=resolved_project_dir,
+)
+```
+
+For image generation, the backend either:
+
+1. edits a reference frame or reference image when `use_reference_input` is enabled
+2. or generates a new image from the shot prompt directly
+
+For video generation, the backend:
+
+1. builds a per-shot prompt from `generation_prompt` plus negative guidance
+2. optionally prepares a small reference clip or still input
+3. calls the OpenAI video API
+4. downloads the generated `.mp4` into `artifacts/<artifact_subdir>/generated_assets/`
+
+This stage also writes `generated_assets.json`, which is the manifest that tells you:
+
+1. which backend ran
+2. which shots succeeded
+3. which model was used
+4. which asset path was written
+5. which shots fell back to the original draft path
+
+## Stage 13: Rendering
 
 The renderer lives in [`pipeline/render.py`](../pipeline/render.py).
 
@@ -457,18 +570,26 @@ It is intentionally modest. The goal is to prove that earlier stages produce eno
 
 The renderer currently does this for each shot:
 
-1. choose a reference image
-2. resize it to cover the output frame
-3. apply a gentle animated zoom/pan
-4. draw a lower-third style text panel
-5. write the frames into an `.mp4`
-6. optionally mux voiceover audio
+1. prefer a generated shot asset when one has already been attached to the shot plan
+2. otherwise prefer a selected source video asset and extract a clip window when one is available
+3. fall back to a selected image asset or reference frame when needed
+4. resize the media to cover the output frame
+5. apply lighter camera drift for video and stronger motion only for stills
+6. apply a basic grade and vignette
+7. blend shots with simple transitions like crossfade
+8. draw a smaller lower-third style text panel
+9. write the frames into an `.mp4`
+10. optionally mux voiceover audio
 
-The core idea:
+The core branching idea is:
 
 ```python
+if item.media_kind == "video" and item.source_asset_path:
+    yield from _iter_video_frames(...)
+    return
+
 background = _load_background(item, style_profile, frame_size)
-animated = _apply_motion(background, progress, item.index)
+animated = _apply_still_motion(background, progress, item.index)
 composited = _draw_overlay(animated, item, style_profile)
 ```
 
@@ -479,7 +600,19 @@ So even though the renderer is simple, it still reflects real decisions made ear
 3. frame size comes from the style profile
 4. voiceover can be attached if configured
 
-## Stage 11: Data Models And Handoffs
+### Why The Output Looks Like Panned Still Images
+
+The renderer is not synthesizing wholly new motion. It now prefers source-video excerpts, but it still relies on reference footage or still assets rather than generating brand-new animation frames.
+
+That means:
+
+1. the system is better at reusing motion that already exists in the references
+2. the `train` stage is preparing style conditioning and asset context, not motion generation
+3. the current output is best thought of as a draft animatic or motion proof
+
+If the result feels like "stills with a panning camera," that is an accurate reading of what the current renderer is doing.
+
+## Stage 14: Data Models And Handoffs
 
 The dataclasses in [`pipeline/models.py`](../pipeline/models.py) are the contract between stages.
 
@@ -507,32 +640,44 @@ Represents the full draft video plan before rendering.
 
 Understanding these objects is the easiest way to understand the system architecture, because each stage mostly transforms one dataclass into another.
 
-## Stage 12: What Gets Written To Disk
+## Stage 15: What Gets Written To Disk
 
 A typical run writes:
 
 1. `artifacts/<artifact_subdir>/resolved_run_config.json`
 2. `artifacts/<artifact_subdir>/video_analyses.json`
 3. `artifacts/<artifact_subdir>/style_profile.json`
-4. `artifacts/<artifact_subdir>/shot_plan.json`
-5. `artifacts/<artifact_subdir>/frames/...`
-6. `artifacts/<artifact_subdir>/audio/...`
-7. `Video Output/<output_file>`
+4. `artifacts/<artifact_subdir>/asset_inventory.json`
+5. `artifacts/<artifact_subdir>/generated_assets.json`
+6. `artifacts/<artifact_subdir>/generated_assets/...`
+7. `artifacts/<artifact_subdir>/continuity_profile.json`
+8. `artifacts/<artifact_subdir>/shot_plan.json`
+9. `artifacts/<artifact_subdir>/frames/...`
+10. `artifacts/<artifact_subdir>/audio/...`
+11. `Video Output/<output_file>`
 
 This makes the pipeline inspectable. You can debug stage by stage instead of treating it like a black box.
 
-## Stage 13: Read The Sample Run End To End
+The key workflow split is:
+
+1. `train` produces `video_analyses.json`, `style_profile.json`, and `asset_inventory.json`
+2. `generate` consumes the trained artifacts and produces `continuity_profile.json`, `shot_plan.json`, `generated_assets.json`, plus the rendered draft
+
+## Stage 16: Read The Sample Run End To End
 
 If you want to inspect the current sample run with code and artifacts side by side, use this sequence:
 
 ```bash
 python -m pipeline show-run-config --run-config /app/run_parameters.yaml
 python -m json.tool /app/Scripts/sample1.json
-python -m pipeline analyze --run-config /app/run_parameters.yaml
+python -m pipeline train --run-config /app/run_parameters.yaml
 python -m json.tool /app/artifacts/sample1/resolved_run_config.json | sed -n '1,260p'
 python -m json.tool /app/artifacts/sample1/video_analyses.json | sed -n '1,220p'
 python -m json.tool /app/artifacts/sample1/style_profile.json | sed -n '1,220p'
+python -m json.tool /app/artifacts/sample1/asset_inventory.json | sed -n '1,220p'
 python -m pipeline generate --run-config /app/run_parameters.yaml
+python -m json.tool /app/artifacts/sample1/generated_assets.json | sed -n '1,220p'
+python -m json.tool /app/artifacts/sample1/continuity_profile.json | sed -n '1,220p'
 python -m json.tool /app/artifacts/sample1/shot_plan.json | sed -n '1,260p'
 ls -lh "/app/Video Output"
 ```
@@ -543,9 +688,26 @@ As you inspect the output, ask:
 2. Did it tolerate empty optional folders?
 3. Does the style profile feel plausible?
 4. Do the shot durations match your intent?
-5. Does the rendered draft reflect the script structure?
+5. Did it pick a sensible asset for each scene?
+6. Does the rendered draft reflect the script structure?
 
-## Stage 14: Active Behavior Vs Future-Facing Structure
+## Stage 17: What It Would Take To Reach Real Animation
+
+If the end goal is "newly generated animations that feel like an actual animated movie," the missing pieces are not small tuning tweaks. They are new stages in the system.
+
+The most important upgrades from here would be:
+
+1. improve the quality and controllability of the generation backend, not just its existence
+2. maintain character identity and wardrobe consistency across shots much more aggressively
+3. add motion planning so each shot has subject motion, camera motion, or both
+4. generate or composite layered scenes instead of flattening everything into one background frame
+5. add temporal consistency constraints so adjacent frames belong to the same animation
+6. use voiceover timing, dialogue beats, and music structure to drive shot rhythm
+7. add stronger layout, blocking, and scene-composition control
+
+In code terms, the biggest current limitation is no longer "there is no generation backend at all." The bigger limitation is that one generated shot at a time is still not the same thing as a coherent animated film. The repo still needs stronger identity, layout, and temporal-control systems around the backend.
+
+## Stage 18: Active Behavior Vs Future-Facing Structure
 
 The pipeline already uses these fields actively:
 
@@ -558,35 +720,36 @@ The pipeline already uses these fields actively:
 7. `analysis.*`
 8. `planning.*`
 9. `render.fps`
-10. `models.transcription_model`
-11. `selection.preferred_reference_types`
-12. `selection.require_videos`
-13. `selection.max_reference_videos`
-14. `workflow.save_resolved_run_config`
+10. `generation.*`
+11. `models.transcription_model`
+12. `models.image_generation_model`
+13. `models.video_generation_model`
+14. `selection.preferred_reference_types`
+15. `selection.require_videos`
+16. `selection.max_reference_videos`
+17. `workflow.save_resolved_run_config`
 
 These fields are mostly structural placeholders today:
 
 1. many non-video asset pools in `asset_subfolders`
 2. `render.output_width`
 3. `render.output_height`
-4. `models.image_generation_model`
-5. `models.video_generation_model`
-6. `models.voice_generation_model`
-7. `selection.allow_images_as_fallback`
-8. `workflow.reuse_existing_analysis`
+4. `models.voice_generation_model`
+5. `selection.allow_images_as_fallback`
+6. `workflow.reuse_existing_analysis`
 
 That does not make them useless. They define the project shape the repo is growing into.
 
-## Stage 15: Good Ways To Extend This Repo
+## Stage 19: Good Ways To Extend This Repo
 
 If you keep building on this system, the most natural next improvements are:
 
-1. add caching so analysis can be reused across runs
-2. use image and asset pools directly during rendering
+1. improve prompt construction and reference control for `openai_image` and `openai_video`
+2. use image and asset pools directly during rendering and generation
 3. improve shot detection beyond simple motion heuristics
 4. align the plan to real voiceover timing
 5. generate prompts intentionally from scene metadata
-6. add more tests around run-config loading and CLI flows
+6. add more tests around train, generate, and backend fallback flows
 
 ## Summary
 

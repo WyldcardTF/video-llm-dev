@@ -1,8 +1,10 @@
 run_name: sample1
 description: >
   Prototype run for the Blonde Blazer Romance project. This run uses a structured
-  JSON script, analyzes the required reference videos plus any optional supporting
-  videos in the selected input bundle, and renders a first draft video.
+  JSON script, trains reusable style artifacts from the required reference videos
+  plus any optional supporting videos in the selected input bundle, optionally
+  synthesizes generated shot assets through a configured generation backend, and
+  then renders a first draft video from those artifacts.
 
 # Select the subfolder inside VIDEO_INPUT_DIR that should be used for this run.
 input_folder: Blonde Blazer Romance
@@ -22,7 +24,7 @@ voiceover_file:
 # These are optional priority video pools inside the selected input_folder.
 # The pipeline still scans the full input_folder recursively for supporting videos.
 # When selection.require_videos is true, only asset_subfolders.reference_videos must
-# contain at least one supported video.
+# contain at least one supported video. These paths are used by the train stage.
 analysis_video_subfolders:
   - reference_videos
   - closeups/videos
@@ -38,6 +40,7 @@ asset_subfolders:
   closeup_images: closeups/images
   broll_videos: broll/videos
   broll_images: broll/images
+  testimonials_videos: testimonials/videos
   portraits: portraits
   product_shots: product_shots
   three_d_models: 3d_models
@@ -73,9 +76,27 @@ render:
   output_width:
   output_height:
 
+generation:
+  # Choose one of:
+  # - draft_compositor: no API generation, only planning + local draft rendering
+  # - auto: openai_video if a video_generation_model is set, else openai_image if an
+  #   image_generation_model is set, else draft_compositor
+  # - openai_image: generate a still image per shot, then render from those images
+  # - openai_video: generate a video clip per shot, then stitch those clips together
+  backend: draft_compositor
+  use_reference_input: true
+  allow_fallback_to_draft: true
+  image_quality: medium
+  image_size:
+  video_size:
+  video_poll_interval_ms: 1000
+
 models:
   # transcription_model is used today when voice transcription is enabled.
-  # The other model slots are placeholders for future generation stages.
+  # image_generation_model and video_generation_model are surfaced into prompts today,
+  # and are also used directly by the generation backend when generation.backend is
+  # set to auto, openai_image, or openai_video.
+  # voice_generation_model is still a placeholder for a future stage.
   transcription_model: whisper-1
   style_analysis_model: heuristic_v1
   image_generation_model:

@@ -6,24 +6,27 @@ from pathlib import Path
 import typer
 
 from .analyze import VideoAnalyzer
+from .assets import build_asset_inventory, load_asset_inventory
 from .config import get_settings
+from .generation import generate_assets_for_plan, resolve_generation_backend
 from .ingest import (
     discover_optional_video_files_from_sources,
     discover_video_files,
     merge_unique_video_paths,
 )
 from .io_utils import ensure_dir, write_json
-from .planning import plan_from_script
+from .planning import build_continuity_profile, plan_from_script
 from .render import render_plan
 from .run_config import RunParameters, load_run_parameters
 from .script_io import load_script_file
-from .style import build_style_profile
+from .models import AssetInventory, ContinuityProfile, StyleProfile, VideoAnalysis
+from .style import build_style_profile, load_style_profile
 
 settings = get_settings()
 DEFAULT_RUN_CONFIG_PATH = Path("run_parameters.yaml")
 
 app = typer.Typer(
-    help="Prototype pipeline for ingesting reference videos and generating a style-matched draft video."
+    help="Prototype pipeline for training reusable style artifacts from reference videos and generating a draft video from a script."
 )
 
 
@@ -97,6 +100,57 @@ def _resolve_video_paths(run_parameters: RunParameters, source_override: Path | 
     return video_paths
 
 
+def _build_analyzer(run_parameters: RunParameters) -> VideoAnalyzer:
+    return VideoAnalyzer(
+        sample_frames=run_parameters.analysis.sample_frames,
+        timeline_scan_points=run_parameters.analysis.timeline_scan_points,
+        transcribe_voice=run_parameters.analysis.transcribe_voice,
+        audio_analysis_max_seconds=run_parameters.analysis.audio_analysis_max_seconds,
+        transcription_max_seconds=run_parameters.analysis.transcription_max_seconds,
+        openai_transcribe_model=run_parameters.models.transcription_model,
+    )
+
+
+def _train_artifacts(
+    run_parameters: RunParameters,
+    source_override: Path | None,
+    resolved_project_dir: Path,
+) -> tuple[list[Path], list[VideoAnalysis], StyleProfile, AssetInventory]:
+    video_paths = _resolve_video_paths(run_parameters, source_override)
+    analyzer = _build_analyzer(run_parameters)
+    analyses = analyzer.analyze_many(video_paths, resolved_project_dir)
+    style_profile = build_style_profile(analyses)
+    asset_inventory = build_asset_inventory(run_parameters, settings, analyses)
+
+    _save_resolved_run_config(run_parameters, resolved_project_dir)
+    write_json(settings.analyses_path(resolved_project_dir), analyses)
+    write_json(settings.style_profile_path(resolved_project_dir), style_profile)
+    write_json(settings.asset_inventory_path(resolved_project_dir), asset_inventory)
+    return video_paths, analyses, style_profile, asset_inventory
+
+
+def _load_trained_style_profile(resolved_project_dir: Path) -> StyleProfile:
+    style_profile_path = settings.style_profile_path(resolved_project_dir)
+    if not style_profile_path.exists():
+        raise FileNotFoundError(
+            "No trained style profile was found for this run. "
+            f"Expected: {style_profile_path}. "
+            "Run `python -m pipeline train` for this run first, or point to the correct project_dir."
+        )
+    return load_style_profile(style_profile_path)
+
+
+def _load_trained_asset_inventory(resolved_project_dir: Path) -> AssetInventory:
+    asset_inventory_path = settings.asset_inventory_path(resolved_project_dir)
+    if not asset_inventory_path.exists():
+        raise FileNotFoundError(
+            "No trained asset inventory was found for this run. "
+            f"Expected: {asset_inventory_path}. "
+            "Run `python -m pipeline train` for this run first, or point to the correct project_dir."
+        )
+    return load_asset_inventory(asset_inventory_path)
+
+
 def _save_resolved_run_config(run_parameters: RunParameters, project_dir: Path) -> None:
     if not run_parameters.workflow.save_resolved_run_config:
         return
@@ -110,6 +164,13 @@ def _save_resolved_run_config(run_parameters: RunParameters, project_dir: Path) 
             "input_root": str(run_parameters.input_root(settings)),
             "bundle_scan_root": str(run_parameters.bundle_scan_root(settings)),
             "required_video_source": str(run_parameters.required_reference_video_source(settings)),
+            "video_analyses_file": str(settings.analyses_path(project_dir)),
+            "style_profile_file": str(settings.style_profile_path(project_dir)),
+            "asset_inventory_file": str(settings.asset_inventory_path(project_dir)),
+            "generated_assets_dir": str(settings.generated_assets_dir(project_dir)),
+            "generated_assets_manifest_file": str(settings.generated_assets_manifest_path(project_dir)),
+            "shot_plan_file": str(settings.shot_plan_path(project_dir)),
+            "continuity_profile_file": str(settings.continuity_profile_path(project_dir)),
             "analysis_sources": [str(path) for path in run_parameters.analysis_sources(settings)],
             "asset_paths": run_parameters.resolved_asset_paths(settings),
         },
@@ -118,7 +179,7 @@ def _save_resolved_run_config(run_parameters: RunParameters, project_dir: Path) 
 
 
 @app.command()
-def analyze(
+def train(
     run_config: Path = typer.Option(
         DEFAULT_RUN_CONFIG_PATH,
         help="YAML file describing this model run. Defaults to run_parameters.yaml in the repo root.",
@@ -134,25 +195,18 @@ def analyze(
 ) -> None:
     run_parameters = load_run_parameters(run_config)
     resolved_project_dir = ensure_dir(_resolve_project_dir(run_parameters, project_dir))
-    video_paths = _resolve_video_paths(run_parameters, source)
-
-    analyzer = VideoAnalyzer(
-        sample_frames=run_parameters.analysis.sample_frames,
-        timeline_scan_points=run_parameters.analysis.timeline_scan_points,
-        transcribe_voice=run_parameters.analysis.transcribe_voice,
-        audio_analysis_max_seconds=run_parameters.analysis.audio_analysis_max_seconds,
-        transcription_max_seconds=run_parameters.analysis.transcription_max_seconds,
-        openai_transcribe_model=run_parameters.models.transcription_model,
+    video_paths, _analyses, _style_profile, _asset_inventory = _train_artifacts(
+        run_parameters,
+        source,
+        resolved_project_dir,
     )
-    analyses = analyzer.analyze_many(video_paths, resolved_project_dir)
-    style_profile = build_style_profile(analyses)
 
-    _save_resolved_run_config(run_parameters, resolved_project_dir)
-    write_json(settings.analyses_path(resolved_project_dir), analyses)
-    write_json(settings.style_profile_path(resolved_project_dir), style_profile)
-
-    typer.echo(f"Analyzed {len(analyses)} video(s) for run '{run_parameters.run_name}'.")
+    typer.echo(
+        f"Trained reusable style artifacts from {len(video_paths)} video(s) for run '{run_parameters.run_name}'."
+    )
+    typer.echo(f"Training artifacts saved to {resolved_project_dir}")
     typer.echo(f"Style profile saved to {settings.style_profile_path(resolved_project_dir)}")
+    typer.echo(f"Asset inventory saved to {settings.asset_inventory_path(resolved_project_dir)}")
 
 
 @app.command()
@@ -160,10 +214,6 @@ def generate(
     run_config: Path = typer.Option(
         DEFAULT_RUN_CONFIG_PATH,
         help="YAML file describing this model run. Defaults to run_parameters.yaml in the repo root.",
-    ),
-    source: Path | None = typer.Option(
-        None,
-        help="Optional override for the video source path. If omitted, the CLI requires at least one video in reference_videos and scans the selected input_folder recursively for additional supporting videos.",
     ),
     script_file: Path | None = typer.Option(
         None,
@@ -181,26 +231,34 @@ def generate(
     run_parameters = load_run_parameters(run_config)
     resolved_project_dir = ensure_dir(_resolve_project_dir(run_parameters, project_dir))
     ensure_dir(settings.video_output_dir)
-
-    video_paths = _resolve_video_paths(run_parameters, source)
-    analyzer = VideoAnalyzer(
-        sample_frames=run_parameters.analysis.sample_frames,
-        timeline_scan_points=run_parameters.analysis.timeline_scan_points,
-        transcribe_voice=run_parameters.analysis.transcribe_voice,
-        audio_analysis_max_seconds=run_parameters.analysis.audio_analysis_max_seconds,
-        transcription_max_seconds=run_parameters.analysis.transcription_max_seconds,
-        openai_transcribe_model=run_parameters.models.transcription_model,
-    )
-    analyses = analyzer.analyze_many(video_paths, resolved_project_dir)
-    style_profile = build_style_profile(analyses)
+    style_profile = _load_trained_style_profile(resolved_project_dir)
+    asset_inventory = _load_trained_asset_inventory(resolved_project_dir)
 
     resolved_script_file = _resolve_script_path(run_parameters, script_file)
     script_document = load_script_file(resolved_script_file)
-    plan = plan_from_script(script_document, style_profile, planning=run_parameters.planning)
+    continuity_profile: ContinuityProfile = build_continuity_profile(script_document, style_profile)
+    plan = plan_from_script(
+        script_document,
+        style_profile,
+        planning=run_parameters.planning,
+        asset_inventory=asset_inventory,
+        continuity_profile=continuity_profile,
+        generation_model=(
+            run_parameters.models.video_generation_model
+            or run_parameters.models.image_generation_model
+        ),
+    )
+    plan, generated_assets_manifest = generate_assets_for_plan(
+        plan=plan,
+        style_profile=style_profile,
+        run_parameters=run_parameters,
+        settings=settings,
+        project_dir=resolved_project_dir,
+    )
 
-    write_json(settings.analyses_path(resolved_project_dir), analyses)
-    write_json(settings.style_profile_path(resolved_project_dir), style_profile)
     write_json(settings.shot_plan_path(resolved_project_dir), plan)
+    write_json(settings.continuity_profile_path(resolved_project_dir), continuity_profile)
+    write_json(settings.generated_assets_manifest_path(resolved_project_dir), generated_assets_manifest)
     _save_resolved_run_config(run_parameters, resolved_project_dir)
 
     resolved_output = _resolve_output_path(run_parameters, output)
@@ -212,6 +270,13 @@ def generate(
         voiceover_path=run_parameters.voiceover_path(settings),
     )
 
+    typer.echo(f"Loaded trained style profile from {settings.style_profile_path(resolved_project_dir)}")
+    typer.echo(f"Loaded trained asset inventory from {settings.asset_inventory_path(resolved_project_dir)}")
+    typer.echo(
+        "Generation backend: "
+        f"{resolve_generation_backend(run_parameters)} "
+        f"(manifest: {settings.generated_assets_manifest_path(resolved_project_dir)})"
+    )
     typer.echo(f"Generated plan with {len(plan.items)} shots for run '{run_parameters.run_name}'.")
     typer.echo(f"Draft video saved to {render_path}")
 
@@ -223,6 +288,7 @@ def run(
         help="YAML file describing this model run. Defaults to run_parameters.yaml in the repo root.",
     ),
 ) -> None:
+    train(run_config=run_config)
     generate(run_config=run_config)
 
 

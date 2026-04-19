@@ -4,14 +4,15 @@ The goal is to create an app that can ingest reference media, understand style a
 
 ## Current prototype
 
-The current prototype does four main things:
+The current prototype does five main things:
 
 1. Ingest at least one required reference video from a selected input bundle and optionally pick up supporting videos from the rest of that bundle.
-2. Analyze visual style signals such as pacing, motion, brightness, and palette.
-3. Analyze audio energy and optionally transcribe voice with OpenAI.
-4. Convert a structured script into a shot plan and render a draft `.mp4`.
+2. Train reusable style artifacts from those references by analyzing pacing, motion, brightness, palette, audio cues, and available bundle assets.
+3. Generate a motion-aware shot plan from a structured script using the trained artifacts plus continuity rules.
+4. Optionally synthesize generated shot assets through an OpenAI image or video backend.
+5. Render a draft `.mp4` that prefers generated assets first, then real source-video excerpts, and finally still-image motion as fallback.
 
-This is still a prototype. It is a style-analysis and draft-rendering pipeline, not yet a full generative video production system.
+This is still a prototype. It is a training-plus-generation-plus-draft-rendering pipeline, not yet a full generative animation system. The repo now has optional real generation backends, but it still does not solve long-range character consistency, scene choreography, or film-quality temporal coherence on its own.
 
 For the deep technical guide, see [docs/tutorial.md](/app/docs/tutorial.md).
 For the step-by-step runbook, see [docs/walkthrough.md](/app/docs/walkthrough.md).
@@ -41,7 +42,7 @@ Use `run_parameters.yaml` for:
 
 This means you can run the CLI with one YAML file instead of passing many command-line parameters.
 
-Right now, the most important active run parameters are `input_folder`, `script_file`, `output_file`, `artifact_subdir`, `analysis_video_subfolders` as priority sources, `analysis.*`, `planning.*`, `render.fps`, `models.transcription_model`, `selection.require_videos`, and `selection.max_reference_videos`. The selected bundle is scanned recursively, so `analysis_video_subfolders` controls discovery priority rather than making every listed folder mandatory. Some of the broader asset and model fields are already part of the skeleton, but are still future-facing.
+Right now, the most important active run parameters are `input_folder`, `script_file`, `output_file`, `artifact_subdir`, `analysis_video_subfolders` as priority sources, `analysis.*`, `planning.*`, `render.fps`, `generation.*`, `models.transcription_model`, `models.image_generation_model`, `models.video_generation_model`, `selection.require_videos`, and `selection.max_reference_videos`. The selected bundle is scanned recursively, so `analysis_video_subfolders` controls discovery priority rather than making every listed folder mandatory.
 
 ## Core files
 
@@ -52,13 +53,13 @@ Right now, the most important active run parameters are `input_folder`, `script_
 
 ## Run it
 
-Analyze a run:
+Train a run:
 
 ```bash
-python -m pipeline analyze --run-config /app/run_parameters.yaml
+python -m pipeline train --run-config /app/run_parameters.yaml
 ```
 
-Generate a draft:
+Generate a draft from trained artifacts:
 
 ```bash
 python -m pipeline generate --run-config /app/run_parameters.yaml
@@ -70,15 +71,41 @@ Shortcut:
 python -m pipeline run --run-config /app/run_parameters.yaml
 ```
 
+The intended workflow is:
+
+1. run `train` to build intermediate artifacts such as `video_analyses.json`, `style_profile.json`, and `asset_inventory.json`
+2. inspect those artifacts
+3. optionally set `generation.backend` plus an image or video model if you want real generated assets
+4. run `generate` to create a continuity-aware shot plan, optionally synthesize generated shot assets, and render a draft using the trained style profile and asset inventory
+
+To enable real generation, set `OPENAI_API_KEY` in `.env` and then choose one of these patterns in [`run_parameters.yaml`](/app/run_parameters.yaml):
+
+```yaml
+generation:
+  backend: openai_image
+
+models:
+  image_generation_model: gpt-image-1
+```
+
+```yaml
+generation:
+  backend: openai_video
+
+models:
+  video_generation_model: sora-2
+```
+
 Inspect the resolved run config:
 
 ```bash
 python -m pipeline show-run-config --run-config /app/run_parameters.yaml
 ```
 
-Because `run_parameters.yaml` defaults to the repo root, this also works:
+Because `run_parameters.yaml` defaults to the repo root, these also work:
 
 ```bash
+python -m pipeline train
 python -m pipeline generate
 ```
 
@@ -123,6 +150,20 @@ The script format is now JSON-first. The current sample in [Scripts/sample1.json
 5. scene-level creative metadata such as `camera`, `mood`, `shot_type`, `text overlay`, and `preferred_asset_types`
 
 Unknown scene fields are preserved in the generated shot plan, so the format is ready to grow with the project.
+
+## Intermediate Artifacts
+
+The most useful files written during a run are:
+
+1. `video_analyses.json`
+2. `style_profile.json`
+3. `asset_inventory.json`
+4. `generated_assets.json`
+5. `continuity_profile.json`
+6. `shot_plan.json`
+7. `generated_assets/`
+
+The shot plan now carries richer fields such as selected asset path, asset type, media kind, clip timing, continuity notes, and generation prompts. The generated-assets manifest records which backend ran, which model was used, what each shot asset path is, and whether a shot fell back to the draft compositor.
 
 ## Important notes
 

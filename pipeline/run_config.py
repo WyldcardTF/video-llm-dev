@@ -36,6 +36,17 @@ class RenderParameters:
 
 
 @dataclass(frozen=True)
+class GenerationParameters:
+    backend: str = "draft_compositor"
+    use_reference_input: bool = True
+    allow_fallback_to_draft: bool = True
+    image_quality: str = "medium"
+    image_size: str | None = None
+    video_size: str | None = None
+    video_poll_interval_ms: int = 1000
+
+
+@dataclass(frozen=True)
 class ModelParameters:
     transcription_model: str = "whisper-1"
     style_analysis_model: str = "heuristic_v1"
@@ -74,6 +85,7 @@ class RunParameters:
     analysis: AnalysisParameters = field(default_factory=AnalysisParameters)
     planning: PlanningParameters = field(default_factory=PlanningParameters)
     render: RenderParameters = field(default_factory=RenderParameters)
+    generation: GenerationParameters = field(default_factory=GenerationParameters)
     models: ModelParameters = field(default_factory=ModelParameters)
     selection: SelectionParameters = field(default_factory=SelectionParameters)
     workflow: WorkflowParameters = field(default_factory=WorkflowParameters)
@@ -180,6 +192,7 @@ def load_run_parameters(path: Path) -> RunParameters:
         analysis=_build_analysis(payload.get("analysis")),
         planning=_build_planning(payload.get("planning")),
         render=_build_render(payload.get("render")),
+        generation=_build_generation(payload.get("generation")),
         models=_build_models(payload.get("models")),
         selection=_build_selection(payload.get("selection")),
         workflow=_build_workflow(payload.get("workflow")),
@@ -200,6 +213,7 @@ def load_run_parameters(path: Path) -> RunParameters:
                 "analysis",
                 "planning",
                 "render",
+                "generation",
                 "models",
                 "selection",
                 "workflow",
@@ -215,6 +229,7 @@ def _build_asset_subfolders(payload: Any) -> dict[str, str]:
         "closeup_images": "closeups/images",
         "broll_videos": "broll/videos",
         "broll_images": "broll/images",
+        "testimonials_videos": "testimonials/videos",
         "portraits": "portraits",
         "product_shots": "product_shots",
         "three_d_models": "3d_models",
@@ -279,6 +294,21 @@ def _build_render(payload: Any) -> RenderParameters:
         fps=_get_int(payload, "fps", default=24),
         output_width=_get_optional_int(payload, "output_width"),
         output_height=_get_optional_int(payload, "output_height"),
+    )
+
+
+def _build_generation(payload: Any) -> GenerationParameters:
+    payload = payload or {}
+    if not isinstance(payload, dict):
+        raise ValueError("generation must be a YAML mapping.")
+    return GenerationParameters(
+        backend=_get_text(payload, "backend", default="draft_compositor") or "draft_compositor",
+        use_reference_input=_get_bool(payload, "use_reference_input", default=True),
+        allow_fallback_to_draft=_get_bool(payload, "allow_fallback_to_draft", default=True),
+        image_quality=_get_text(payload, "image_quality", default="medium") or "medium",
+        image_size=_get_text(payload, "image_size"),
+        video_size=_get_text(payload, "video_size"),
+        video_poll_interval_ms=_get_int(payload, "video_poll_interval_ms", default=1000),
     )
 
 
