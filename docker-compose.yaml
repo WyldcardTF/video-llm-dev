@@ -3,16 +3,19 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: video-llm-dev
+    container_name: ${COMPOSE_CONTAINER_NAME:-video-llm-dev}
     working_dir: /app
+    env_file:
+      - .env
     volumes:
       - .:/app
       - pip-cache:/root/.cache/pip
     stdin_open: true
     tty: true
     environment:
-      PYTHONUNBUFFERED: "1"
-    command: bash
+      PYTHONUNBUFFERED: "${PYTHONUNBUFFERED:-1}"
+      DOTENV_PATH: "${DOTENV_PATH:-/app/.env}"
+    command: ${APP_START_COMMAND:-bash}
 
 volumes:
   pip-cache:

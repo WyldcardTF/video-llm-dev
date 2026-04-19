@@ -4,6 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DOTENV_PATH=/app/.env \
     VIRTUAL_ENV=/opt/venv \
     PATH="/opt/venv/bin:$PATH"
 
@@ -28,7 +29,8 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip setuptools wheel \
     && pip install -r /app/requirements.txt
 
-# Copy project files
+# Copy project files. Runtime secrets are injected with docker-compose env_file
+# and local bind mounts rather than baked into the image.
 COPY . /app
 
 CMD ["bash"]

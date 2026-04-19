@@ -7,6 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .config import get_settings
 from .io_utils import ensure_dir, slugify
 from .models import AudioProfile, FrameSample, VideoAnalysis
 from .voice import describe_voice_style, maybe_transcribe_video
@@ -15,21 +16,51 @@ from .voice import describe_voice_style, maybe_transcribe_video
 class VideoAnalyzer:
     def __init__(
         self,
-        sample_frames: int = 6,
-        timeline_scan_points: int = 48,
-        transcribe_voice: bool = False,
+        sample_frames: int | None = None,
+        timeline_scan_points: int | None = None,
+        transcribe_voice: bool | None = None,
+        frames_dir_name: str | None = None,
+        audio_dir_name: str | None = None,
+        audio_analysis_max_seconds: int | None = None,
+        transcription_max_seconds: int | None = None,
+        openai_api_key: str | None = None,
+        openai_transcribe_model: str | None = None,
     ) -> None:
-        self.sample_frames = max(sample_frames, 3)
-        self.timeline_scan_points = max(timeline_scan_points, 12)
-        self.transcribe_voice = transcribe_voice
+        settings = get_settings()
+        resolved_sample_frames = settings.sample_frames if sample_frames is None else sample_frames
+        resolved_timeline_scan_points = (
+            settings.timeline_scan_points if timeline_scan_points is None else timeline_scan_points
+        )
+
+        self.sample_frames = max(resolved_sample_frames, 3)
+        self.timeline_scan_points = max(resolved_timeline_scan_points, 12)
+        self.transcribe_voice = settings.transcribe_voice if transcribe_voice is None else transcribe_voice
+        self.frames_dir_name = settings.frames_dir_name if frames_dir_name is None else frames_dir_name
+        self.audio_dir_name = settings.audio_dir_name if audio_dir_name is None else audio_dir_name
+        self.audio_analysis_max_seconds = (
+            settings.audio_analysis_max_seconds
+            if audio_analysis_max_seconds is None
+            else audio_analysis_max_seconds
+        )
+        self.transcription_max_seconds = (
+            settings.transcription_max_seconds
+            if transcription_max_seconds is None
+            else transcription_max_seconds
+        )
+        self.openai_api_key = settings.openai_api_key if openai_api_key is None else openai_api_key
+        self.openai_transcribe_model = (
+            settings.openai_transcribe_model
+            if openai_transcribe_model is None
+            else openai_transcribe_model
+        )
 
     def analyze_many(self, video_paths: list[Path], project_dir: Path) -> list[VideoAnalysis]:
         return [self.analyze_video(video_path, project_dir) for video_path in video_paths]
 
     def analyze_video(self, video_path: Path, project_dir: Path) -> VideoAnalysis:
         video_id = slugify(video_path.stem)
-        frames_dir = ensure_dir(project_dir / "frames" / video_id)
-        audio_dir = ensure_dir(project_dir / "audio")
+        frames_dir = ensure_dir(project_dir / self.frames_dir_name / video_id)
+        audio_dir = ensure_dir(project_dir / self.audio_dir_name)
 
         capture = cv2.VideoCapture(str(video_path))
         if not capture.isOpened():
@@ -196,7 +227,7 @@ class VideoAnalyzer:
             "-i",
             str(video_path),
             "-t",
-            "90",
+            str(self.audio_analysis_max_seconds),
             "-vn",
             "-ac",
             "1",
@@ -232,7 +263,13 @@ class VideoAnalyzer:
         transcript = None
         if self.transcribe_voice:
             try:
-                transcript = maybe_transcribe_video(video_path, audio_dir)
+                transcript = maybe_transcribe_video(
+                    video_path,
+                    audio_dir,
+                    api_key=self.openai_api_key,
+                    model_name=self.openai_transcribe_model,
+                    max_seconds=self.transcription_max_seconds,
+                )
             except Exception:
                 transcript = None
 

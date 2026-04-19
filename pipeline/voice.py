@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 from pathlib import Path
@@ -8,8 +7,13 @@ from pathlib import Path
 from .io_utils import ensure_dir
 
 
-def maybe_transcribe_video(video_path: Path, audio_dir: Path, max_seconds: int = 60) -> str | None:
-    api_key = os.getenv("OPENAI_API_KEY")
+def maybe_transcribe_video(
+    video_path: Path,
+    audio_dir: Path,
+    api_key: str | None = None,
+    model_name: str = "whisper-1",
+    max_seconds: int = 60,
+) -> str | None:
     if not api_key:
         return None
 
@@ -40,7 +44,6 @@ def maybe_transcribe_video(video_path: Path, audio_dir: Path, max_seconds: int =
     from openai import OpenAI
 
     client = OpenAI(api_key=api_key)
-    model_name = os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
 
     with sample_path.open("rb") as audio_handle:
         transcript = client.audio.transcriptions.create(

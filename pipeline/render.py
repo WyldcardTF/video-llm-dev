@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from .config import get_settings
 from .models import GenerationPlan, ShotPlanItem, StyleProfile
 
 
@@ -15,9 +16,12 @@ def render_plan(
     plan: GenerationPlan,
     style_profile: StyleProfile,
     output_path: Path,
-    fps: int = 24,
+    fps: int | None = None,
     voiceover_path: Path | None = None,
 ) -> Path:
+    settings = get_settings()
+    resolved_fps = settings.render_fps if fps is None else fps
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     silent_output = output_path if voiceover_path is None else output_path.with_name(f"{output_path.stem}_silent{output_path.suffix}")
 
@@ -25,7 +29,7 @@ def render_plan(
     writer = cv2.VideoWriter(
         str(silent_output),
         cv2.VideoWriter_fourcc(*"mp4v"),
-        fps,
+        resolved_fps,
         frame_size,
     )
     if not writer.isOpened():
@@ -33,7 +37,7 @@ def render_plan(
 
     for item in plan.items:
         background = _load_background(item, style_profile, frame_size)
-        frame_total = max(int(round(item.duration_s * fps)), 1)
+        frame_total = max(int(round(item.duration_s * resolved_fps)), 1)
 
         for frame_index in range(frame_total):
             progress = frame_index / max(frame_total - 1, 1)

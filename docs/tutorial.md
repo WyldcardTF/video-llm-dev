@@ -44,54 +44,80 @@ That is the big picture.
 
 If you keep that model in mind, the individual files become much easier to understand.
 
-## 3. How to run it
+## 3. Configure `.env` first
+
+Before running the commands, open `.env`.
+
+That file now controls the main runtime parameters, including:
+
+1. OpenAI secrets and model names.
+2. The video input folder.
+3. The video output folder.
+4. The script file path.
+5. The project artifacts folder.
+6. Sampling, timing, and render defaults.
+
+The most important variables are:
+
+1. `VIDEO_INPUT_DIR`
+2. `SCRIPT_INPUT_FILE`
+3. `VIDEO_OUTPUT_DIR`
+4. `PIPELINE_PROJECT_DIR`
+5. `OPENAI_API_KEY`
+
+The code loads `.env` directly, and Docker Compose also injects the same file into the container.
+
+## 4. How to run it
 
 ## Analyze only
 
 Use this when you want to inspect how the code interprets your reference videos.
 
 ```bash
-python -m pipeline analyze \
-  --source path/to/reference_videos \
-  --project-dir artifacts/demo
+python -m pipeline analyze
 ```
 
 This creates files such as:
 
-1. `artifacts/demo/video_analyses.json`
-2. `artifacts/demo/style_profile.json`
-3. `artifacts/demo/frames/...`
+1. `PIPELINE_PROJECT_DIR/VIDEO_ANALYSES_FILENAME`
+2. `PIPELINE_PROJECT_DIR/STYLE_PROFILE_FILENAME`
+3. `PIPELINE_PROJECT_DIR/FRAMES_DIR_NAME/...`
 
 ## Generate a draft video
 
 Use this when you also have a script file.
 
 ```bash
-python -m pipeline generate \
-  --source path/to/reference_videos \
-  --script-file path/to/script.txt \
-  --project-dir artifacts/demo
+python -m pipeline generate
 ```
 
 This adds:
 
-1. `artifacts/demo/shot_plan.json`
-2. `artifacts/demo/generated/draft.mp4`
+1. `PIPELINE_PROJECT_DIR/SHOT_PLAN_FILENAME`
+2. `VIDEO_OUTPUT_DIR/OUTPUT_FILENAME`
 
 ## Optional transcription
 
 If you set `OPENAI_API_KEY`, you can also ask the code to transcribe part of the audio:
 
 ```bash
-python -m pipeline analyze \
-  --source path/to/reference_videos \
-  --project-dir artifacts/demo \
-  --transcribe-voice
+python -m pipeline analyze --transcribe-voice
 ```
 
 That transcription is used only to improve the voice-style description. It is not yet used to create new audio.
 
-## 4. What each file is responsible for
+You can still override anything on the command line:
+
+```bash
+python -m pipeline generate \
+  --source /app/my-reference-videos \
+  --script-file /app/my-reference-videos/script.txt \
+  --output custom-draft.mp4
+```
+
+In that example, `custom-draft.mp4` will still be written inside `VIDEO_OUTPUT_DIR` because it is a relative output path.
+
+## 5. What each file is responsible for
 
 Here is the map of the package:
 
@@ -116,7 +142,7 @@ Here is the map of the package:
 
 The easiest way to understand the project is to read those files in that order.
 
-## 5. Step-by-step walkthrough
+## 6. Step-by-step walkthrough
 
 ## Step 1: CLI entrypoint
 
@@ -456,7 +482,7 @@ Draws a rounded dark panel, a color accent bar, and the text overlay using Pillo
 
 If you provide a narration file, `ffmpeg` combines it with the silent rendered video.
 
-## 6. What to inspect after a run
+## 7. What to inspect after a run
 
 When you run the pipeline, do not jump straight to the final video.
 
@@ -494,7 +520,7 @@ Look here to answer:
 1. Did we sample useful reference frames?
 2. Are these the kinds of frames we want the renderer to reuse?
 
-### `generated/draft.mp4`
+### `VIDEO_OUTPUT_DIR/OUTPUT_FILENAME`
 
 Look here to answer:
 
@@ -502,7 +528,7 @@ Look here to answer:
 2. Is the pacing okay?
 3. Is the overlay text readable?
 
-## 7. What is still missing for a real app
+## 8. What is still missing for a real app
 
 To make an app like this truly work in production, we need more than heuristics and a local CLI.
 
@@ -564,7 +590,7 @@ A usable app would also need:
 7. retries and failure handling
 8. observability and logs
 
-## 8. The most useful next improvements in this repo
+## 9. The most useful next improvements in this repo
 
 If we want to improve this codebase gradually, these are the highest-value next steps.
 
@@ -629,7 +655,7 @@ Over time, you will likely want these as distinct subsystems:
 
 That separation makes production architecture easier later.
 
-## 9. A good way to learn this code slowly
+## 10. A good way to learn this code slowly
 
 Here is a simple learning path.
 
@@ -689,7 +715,7 @@ Run the pipeline on a tiny example and compare:
 
 This is where the code usually clicks.
 
-## 10. A concrete practice exercise
+## 11. A concrete practice exercise
 
 A good next exercise is:
 
@@ -703,7 +729,7 @@ A good next exercise is:
 
 This will teach you more quickly than reading passively.
 
-## 11. The honest summary
+## 12. The honest summary
 
 The code currently demonstrates the architecture of a style-matched video pipeline, not the final intelligence of one.
 
@@ -718,7 +744,7 @@ In fact, it is a good way to build this kind of app, because we first prove:
 
 Once that is clear, the next iterations become much more focused.
 
-## 12. Suggested next session
+## 13. Suggested next session
 
 A very productive next step would be to do one of these together:
 
