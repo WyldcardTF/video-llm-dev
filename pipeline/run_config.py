@@ -109,20 +109,37 @@ class RunParameters:
             return path
         return self.input_root(settings) / path
 
-    def analysis_sources(self, settings: Settings) -> list[Path]:
+    def bundle_scan_root(self, settings: Settings) -> Path:
+        return self.input_root(settings)
+
+    def required_reference_video_source(self, settings: Settings) -> Path:
+        root = self.input_root(settings)
+        reference_subfolder = self.asset_subfolders.get("reference_videos", "reference_videos")
+        return root / reference_subfolder
+
+    def supporting_video_sources(self, settings: Settings) -> list[Path]:
         root = self.input_root(settings)
         if self.analysis_video_subfolders:
-            return [root / subfolder for subfolder in self.analysis_video_subfolders]
+            relative_paths = self.analysis_video_subfolders
+        else:
+            relative_paths = [
+                self.asset_subfolders[asset_key]
+                for asset_key in self.selection.preferred_reference_types
+                if asset_key in self.asset_subfolders
+            ]
 
-        preferred_paths = [
-            self.asset_subfolders[asset_key]
-            for asset_key in self.selection.preferred_reference_types
-            if asset_key in self.asset_subfolders
-        ]
-        if preferred_paths:
-            return [root / relative_path for relative_path in preferred_paths]
+        sources: list[Path] = []
+        seen: set[Path] = set()
+        for relative_path in relative_paths:
+            source = root / relative_path
+            if source in seen:
+                continue
+            seen.add(source)
+            sources.append(source)
+        return sources
 
-        return [root]
+    def analysis_sources(self, settings: Settings) -> list[Path]:
+        return self.supporting_video_sources(settings)
 
     def resolved_asset_paths(self, settings: Settings) -> dict[str, str]:
         root = self.input_root(settings)

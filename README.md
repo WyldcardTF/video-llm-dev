@@ -6,14 +6,15 @@ The goal is to create an app that can ingest reference media, understand style a
 
 The current prototype does four main things:
 
-1. Ingest reference videos from a selected input bundle.
+1. Ingest at least one required reference video from a selected input bundle and optionally pick up supporting videos from the rest of that bundle.
 2. Analyze visual style signals such as pacing, motion, brightness, and palette.
 3. Analyze audio energy and optionally transcribe voice with OpenAI.
 4. Convert a structured script into a shot plan and render a draft `.mp4`.
 
 This is still a prototype. It is a style-analysis and draft-rendering pipeline, not yet a full generative video production system.
 
-For the detailed walkthrough, see [docs/tutorial.md](/app/docs/tutorial.md).
+For the deep technical guide, see [docs/tutorial.md](/app/docs/tutorial.md).
+For the step-by-step runbook, see [docs/walkthrough.md](/app/docs/walkthrough.md).
 
 ## Configuration split
 
@@ -36,10 +37,11 @@ Use `run_parameters.yaml` for:
 3. which output file to render
 4. analysis, planning, render, and model-run settings
 5. asset subfolders for the selected run
+6. priority video pools inside the bundle
 
 This means you can run the CLI with one YAML file instead of passing many command-line parameters.
 
-Right now, the most important active run parameters are `input_folder`, `script_file`, `output_file`, `artifact_subdir`, `analysis.*`, `planning.*`, `render.fps`, `models.transcription_model`, and `selection.max_reference_videos`. Some of the broader asset and model fields are already part of the skeleton, but are still future-facing.
+Right now, the most important active run parameters are `input_folder`, `script_file`, `output_file`, `artifact_subdir`, `analysis_video_subfolders` as priority sources, `analysis.*`, `planning.*`, `render.fps`, `models.transcription_model`, `selection.require_videos`, and `selection.max_reference_videos`. The selected bundle is scanned recursively, so `analysis_video_subfolders` controls discovery priority rather than making every listed folder mandatory. Some of the broader asset and model fields are already part of the skeleton, but are still future-facing.
 
 ## Core files
 
@@ -108,6 +110,8 @@ That bundle now includes a broader skeleton for projects like this:
 
 This gives us a better base for future versions that may use stills, 3D assets, brand graphics, storyboards, voiceovers, and music.
 
+Only `reference_videos/` is required to contain at least one supported video for the current pipeline. The rest of the folders are optional supporting inputs and may be missing or empty.
+
 ## Structured scripts
 
 The script format is now JSON-first. The current sample in [Scripts/sample1.json](/app/Scripts/sample1.json) includes:
@@ -122,6 +126,6 @@ Unknown scene fields are preserved in the generated shot plan, so the format is 
 
 ## Important notes
 
-1. `.env` is ignored by Git.
+1. `.env`, `Video Input`, `Video Output`, and `artifacts` are ignored by Git.
 2. `.env.example` is the tracked template.
-3. `.dockerignore` excludes `.env`, `Video Input`, `Video Output`, and `artifacts`.
+3. `.dockerignore` also excludes `.env`, `Video Input`, `Video Output`, and `artifacts`.

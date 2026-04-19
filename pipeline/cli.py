@@ -7,7 +7,11 @@ import typer
 
 from .analyze import VideoAnalyzer
 from .config import get_settings
-from .ingest import discover_video_files, discover_video_files_from_sources
+from .ingest import (
+    discover_optional_video_files_from_sources,
+    discover_video_files,
+    merge_unique_video_paths,
+)
 from .io_utils import ensure_dir, write_json
 from .planning import plan_from_script
 from .render import render_plan
@@ -57,8 +61,35 @@ def _resolve_video_paths(run_parameters: RunParameters, source_override: Path | 
     if source_override is not None:
         return discover_video_files(source_override)
 
-    analysis_sources = run_parameters.analysis_sources(settings)
-    video_paths = discover_video_files_from_sources(analysis_sources)
+    bundle_root = run_parameters.bundle_scan_root(settings)
+    if not bundle_root.exists():
+        raise FileNotFoundError(f"Selected input_folder does not exist: {bundle_root}")
+
+    required_videos: list[Path] = []
+    if run_parameters.selection.require_videos:
+        required_source = run_parameters.required_reference_video_source(settings)
+        try:
+            required_videos = discover_video_files(required_source)
+        except (FileNotFoundError, ValueError) as exc:
+            raise FileNotFoundError(
+                f"The selected input bundle must contain at least one supported video in: {required_source}"
+            ) from exc
+
+    prioritized_supporting_videos = discover_optional_video_files_from_sources(
+        run_parameters.analysis_sources(settings)
+    )
+    try:
+        bundle_videos = discover_video_files(bundle_root)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            f"No supported video files were found anywhere in the selected input bundle: {bundle_root}"
+        ) from exc
+
+    video_paths = merge_unique_video_paths(
+        required_videos,
+        prioritized_supporting_videos,
+        bundle_videos,
+    )
 
     if run_parameters.selection.max_reference_videos:
         video_paths = video_paths[: run_parameters.selection.max_reference_videos]
@@ -77,6 +108,8 @@ def _save_resolved_run_config(run_parameters: RunParameters, project_dir: Path) 
             "output_file": str(run_parameters.output_path(settings)),
             "project_dir": str(project_dir),
             "input_root": str(run_parameters.input_root(settings)),
+            "bundle_scan_root": str(run_parameters.bundle_scan_root(settings)),
+            "required_video_source": str(run_parameters.required_reference_video_source(settings)),
             "analysis_sources": [str(path) for path in run_parameters.analysis_sources(settings)],
             "asset_paths": run_parameters.resolved_asset_paths(settings),
         },
@@ -92,7 +125,7 @@ def analyze(
     ),
     source: Path | None = typer.Option(
         None,
-        help="Optional override for the video source path. If omitted, the CLI uses input_folder and analysis_video_subfolders from the YAML run config.",
+        help="Optional override for the video source path. If omitted, the CLI requires at least one video in reference_videos and scans the selected input_folder recursively for additional supporting videos.",
     ),
     project_dir: Path | None = typer.Option(
         None,
@@ -130,7 +163,7 @@ def generate(
     ),
     source: Path | None = typer.Option(
         None,
-        help="Optional override for the video source path. If omitted, the CLI uses input_folder and analysis_video_subfolders from the YAML run config.",
+        help="Optional override for the video source path. If omitted, the CLI requires at least one video in reference_videos and scans the selected input_folder recursively for additional supporting videos.",
     ),
     script_file: Path | None = typer.Option(
         None,

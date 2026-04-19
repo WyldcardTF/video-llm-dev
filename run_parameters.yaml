@@ -1,7 +1,8 @@
 run_name: sample1
 description: >
   Prototype run for the Blonde Blazer Romance project. This run uses a structured
-  JSON script, analyzes selected reference media, and renders a first draft video.
+  JSON script, analyzes the required reference videos plus any optional supporting
+  videos in the selected input bundle, and renders a first draft video.
 
 # Select the subfolder inside VIDEO_INPUT_DIR that should be used for this run.
 input_folder: Blonde Blazer Romance
@@ -18,7 +19,10 @@ artifact_subdir: sample1
 # Optional. If provided as a relative path, it is resolved inside the selected input_folder.
 voiceover_file:
 
-# These subfolders are actively searched for source videos used in analysis.
+# These are optional priority video pools inside the selected input_folder.
+# The pipeline still scans the full input_folder recursively for supporting videos.
+# When selection.require_videos is true, only asset_subfolders.reference_videos must
+# contain at least one supported video.
 analysis_video_subfolders:
   - reference_videos
   - closeups/videos
@@ -81,7 +85,8 @@ models:
 selection:
   # max_reference_videos is used today.
   # preferred_reference_types is used when analysis_video_subfolders is empty.
-  # require_videos and allow_images_as_fallback are future-facing selection flags.
+  # require_videos is used today to enforce at least one video in reference_videos.
+  # allow_images_as_fallback is still future-facing.
   preferred_reference_types:
     - reference_videos
     - closeup_videos
