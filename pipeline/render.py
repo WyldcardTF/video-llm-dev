@@ -8,7 +8,6 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .config import get_settings
 from .models import GenerationPlan, ShotPlanItem, StyleProfile
 
 
@@ -19,8 +18,7 @@ def render_plan(
     fps: int | None = None,
     voiceover_path: Path | None = None,
 ) -> Path:
-    settings = get_settings()
-    resolved_fps = settings.render_fps if fps is None else fps
+    resolved_fps = 24 if fps is None else fps
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     silent_output = output_path if voiceover_path is None else output_path.with_name(f"{output_path.stem}_silent{output_path.suffix}")
@@ -122,7 +120,7 @@ def _draw_overlay(image: np.ndarray, item: ShotPlanItem, style_profile: StylePro
     title_font = _load_font(42, bold=True)
     body_font = _load_font(30)
 
-    title = f"Shot {item.index}"
+    title = item.title or f"Shot {item.index}"
     copy = textwrap.fill(item.text_overlay or item.narration, width=42)
 
     draw.text((panel_left + 46, panel_top + 22), title, font=title_font, fill=(255, 255, 255, 255))

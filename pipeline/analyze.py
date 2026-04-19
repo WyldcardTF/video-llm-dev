@@ -27,31 +27,23 @@ class VideoAnalyzer:
         openai_transcribe_model: str | None = None,
     ) -> None:
         settings = get_settings()
-        resolved_sample_frames = settings.sample_frames if sample_frames is None else sample_frames
-        resolved_timeline_scan_points = (
-            settings.timeline_scan_points if timeline_scan_points is None else timeline_scan_points
-        )
+        resolved_sample_frames = 6 if sample_frames is None else sample_frames
+        resolved_timeline_scan_points = 48 if timeline_scan_points is None else timeline_scan_points
 
         self.sample_frames = max(resolved_sample_frames, 3)
         self.timeline_scan_points = max(resolved_timeline_scan_points, 12)
-        self.transcribe_voice = settings.transcribe_voice if transcribe_voice is None else transcribe_voice
+        self.transcribe_voice = False if transcribe_voice is None else transcribe_voice
         self.frames_dir_name = settings.frames_dir_name if frames_dir_name is None else frames_dir_name
         self.audio_dir_name = settings.audio_dir_name if audio_dir_name is None else audio_dir_name
         self.audio_analysis_max_seconds = (
-            settings.audio_analysis_max_seconds
-            if audio_analysis_max_seconds is None
-            else audio_analysis_max_seconds
+            90 if audio_analysis_max_seconds is None else audio_analysis_max_seconds
         )
         self.transcription_max_seconds = (
-            settings.transcription_max_seconds
-            if transcription_max_seconds is None
-            else transcription_max_seconds
+            60 if transcription_max_seconds is None else transcription_max_seconds
         )
         self.openai_api_key = settings.openai_api_key if openai_api_key is None else openai_api_key
         self.openai_transcribe_model = (
-            settings.openai_transcribe_model
-            if openai_transcribe_model is None
-            else openai_transcribe_model
+            "whisper-1" if openai_transcribe_model is None else openai_transcribe_model
         )
 
     def analyze_many(self, video_paths: list[Path], project_dir: Path) -> list[VideoAnalysis]:

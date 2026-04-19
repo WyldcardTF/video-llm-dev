@@ -36,3 +36,20 @@ def discover_video_files(source: Path) -> list[Path]:
         raise FileNotFoundError(f"No supported video files found in: {source}")
 
     return videos
+
+
+def discover_video_files_from_sources(sources: list[Path]) -> list[Path]:
+    videos: list[Path] = []
+    seen: set[Path] = set()
+
+    for source in sources:
+        for video_path in discover_video_files(source):
+            if video_path in seen:
+                continue
+            seen.add(video_path)
+            videos.append(video_path)
+
+    if not videos:
+        raise FileNotFoundError("No supported video files were found in the configured sources.")
+
+    return sorted(videos)

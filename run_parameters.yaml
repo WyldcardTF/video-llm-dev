@@ -1,0 +1,97 @@
+run_name: sample1
+description: >
+  Prototype run for the Blonde Blazer Romance project. This run uses a structured
+  JSON script, analyzes selected reference media, and renders a first draft video.
+
+# Select the subfolder inside VIDEO_INPUT_DIR that should be used for this run.
+input_folder: Blonde Blazer Romance
+
+# Script files are resolved relative to SCRIPTS_DIR unless you provide an absolute path.
+script_file: sample1.json
+
+# Output files are resolved relative to VIDEO_OUTPUT_DIR unless you provide an absolute path.
+output_file: sample1_draft.mp4
+
+# Artifacts are resolved inside PIPELINE_ARTIFACTS_DIR.
+artifact_subdir: sample1
+
+# Optional. If provided as a relative path, it is resolved inside the selected input_folder.
+voiceover_file:
+
+# These subfolders are actively searched for source videos used in analysis.
+analysis_video_subfolders:
+  - reference_videos
+  - closeups/videos
+  - broll/videos
+  - testimonials/videos
+
+# Extra asset pools that are useful in this kind of project.
+# Most are not consumed directly by the current renderer yet, but they are part of the repo skeleton
+# and are saved into resolved_run_config.json so future stages can use them.
+asset_subfolders:
+  reference_videos: reference_videos
+  closeup_videos: closeups/videos
+  closeup_images: closeups/images
+  broll_videos: broll/videos
+  broll_images: broll/images
+  portraits: portraits
+  product_shots: product_shots
+  three_d_models: 3d_models
+  style_references: style_references
+  brand_assets: brand_assets
+  logos: brand_assets/logos
+  overlays: overlays
+  voiceovers: audio/voiceovers
+  music: audio/music
+  sfx: audio/sfx
+  documents: docs
+  storyboards: docs/storyboards
+  transcripts: docs/transcripts
+
+analysis:
+  sample_frames: 8
+  timeline_scan_points: 64
+  transcribe_voice: true
+  transcription_max_seconds: 60
+  audio_analysis_max_seconds: 90
+
+planning:
+  honor_script_timing: true
+  shot_duration_min_s: 2.0
+  shot_duration_max_s: 8.0
+  fallback_transition: crossfade
+  include_scene_metadata_in_prompt: true
+
+render:
+  # fps is used today by the renderer.
+  # output_width and output_height are reserved for a future render stage.
+  fps: 24
+  output_width:
+  output_height:
+
+models:
+  # transcription_model is used today when voice transcription is enabled.
+  # The other model slots are placeholders for future generation stages.
+  transcription_model: whisper-1
+  style_analysis_model: heuristic_v1
+  image_generation_model:
+  video_generation_model:
+  voice_generation_model:
+
+selection:
+  # max_reference_videos is used today.
+  # preferred_reference_types is used when analysis_video_subfolders is empty.
+  # require_videos and allow_images_as_fallback are future-facing selection flags.
+  preferred_reference_types:
+    - reference_videos
+    - closeup_videos
+    - broll_videos
+  require_videos: true
+  allow_images_as_fallback: true
+  max_reference_videos:
+
+workflow:
+  # save_resolved_run_config is used today.
+  # reuse_existing_analysis is reserved for a future caching step.
+  save_resolved_run_config: true
+  reuse_existing_analysis: false

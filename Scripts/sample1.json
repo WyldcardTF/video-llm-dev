@@ -1,0 +1,82 @@
+{
+  "project": {
+    "name": "Blonde Blazer Romance",
+    "brand": "Demo Brand",
+    "objective": "Create a romantic short-form fashion promo with a premium editorial feel.",
+    "target_audience": "Social-first fashion audience",
+    "aspect_ratio": "9:16",
+    "voice_style_goal": "confident, warm, intimate"
+  },
+  "global_style": {
+    "mood": "romantic, editorial, aspirational",
+    "color_palette": ["cream", "black", "gold", "soft skin tones"],
+    "editing_rhythm": "medium-fast",
+    "camera_language": "close-up heavy with elegant motion",
+    "music_direction": "modern romantic pop"
+  },
+  "scenes": [
+    {
+      "name": "Scene 1",
+      "description": "Close up of blonde blazer face locking eye contact with camera.",
+      "time start": "00h:00m:00s:00ms",
+      "time end": "00h:00m:04s:00ms",
+      "duration": "00h:00m:04s:00ms",
+      "camera": "tight_close_up",
+      "shot_type": "beauty_closeup",
+      "mood": "intimate",
+      "text overlay": "Fall in love with the look",
+      "transition": "crossfade",
+      "subject": "lead_talent",
+      "wardrobe": "blonde blazer",
+      "preferred_asset_types": ["closeup_videos", "closeup_images"],
+      "notes": "Use the strongest direct eye-contact shot available."
+    },
+    {
+      "name": "Scene 2",
+      "description": "Medium shot revealing the blazer silhouette with subtle body turn and fabric motion.",
+      "time start": "00h:00m:04s:00ms",
+      "time end": "00h:00m:08s:00ms",
+      "duration": "00h:00m:04s:00ms",
+      "camera": "medium",
+      "shot_type": "fashion_reveal",
+      "mood": "confident",
+      "text overlay": "Tailored for attention",
+      "transition": "cut",
+      "subject": "lead_talent",
+      "preferred_asset_types": ["reference_videos", "broll_videos"],
+      "product_focus": "blazer_fit",
+      "notes": "Prioritize movement that shows the jacket shape."
+    },
+    {
+      "name": "Scene 3",
+      "description": "Insert sequence of premium details like lapel texture, buttons, and jewelry accents.",
+      "time start": "00h:00m:08s:00ms",
+      "time end": "00h:00m:12s:00ms",
+      "duration": "00h:00m:04s:00ms",
+      "camera": "macro_details",
+      "shot_type": "detail_broll",
+      "mood": "luxury",
+      "text overlay": "Details that do the talking",
+      "transition": "crossfade",
+      "preferred_asset_types": ["broll_videos", "product_shots", "closeup_images"],
+      "product_focus": "fabric_and_hardware",
+      "notes": "If no macro footage exists, use the best stills with motion."
+    },
+    {
+      "name": "Scene 4",
+      "description": "Hero portrait ending with poised smile and a final branded call to action.",
+      "time start": "00h:00m:12s:00ms",
+      "time end": "00h:00m:16s:00ms",
+      "duration": "00h:00m:04s:00ms",
+      "camera": "hero_portrait",
+      "shot_type": "closing_hero",
+      "mood": "aspirational",
+      "text overlay": "Own the moment",
+      "transition": "fade",
+      "subject": "lead_talent",
+      "preferred_asset_types": ["portraits", "reference_videos"],
+      "cta": "Shop the drop",
+      "notes": "This is the payoff frame. Use the cleanest, most iconic image."
+    }
+  ]
+}
