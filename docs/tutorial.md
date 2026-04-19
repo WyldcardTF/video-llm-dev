@@ -67,6 +67,34 @@ The most important variables are:
 
 The code loads `.env` directly, and Docker Compose also injects the same file into the container.
 
+### What to run now
+
+Start by checking the current configuration and making sure the default folders exist:
+
+```bash
+sed -n '1,220p' .env
+mkdir -p "/app/Video Input" "/app/Video Output" "/app/artifacts/session"
+ls -la "/app/Video Input"
+ls -la "/app/Video Output"
+```
+
+If you do not already have a script file, create a tiny one:
+
+```bash
+cat > "/app/Video Input/script.txt" <<'EOF'
+Open on a strong visual hook.
+Show the main subject in motion.
+Explain the key idea clearly.
+Close with a short call to action.
+EOF
+```
+
+If you want to verify what the app thinks the active defaults are, run:
+
+```bash
+python -c "from pipeline.config import get_settings; print(get_settings())"
+```
+
 ## 4. How to run it
 
 ## Analyze only
@@ -154,6 +182,23 @@ This file is where the user-facing commands live:
 2. `generate`
 3. `run`
 
+### What to run now
+
+Start by discovering the available commands and their options:
+
+```bash
+python -m pipeline --help
+python -m pipeline analyze --help
+python -m pipeline generate --help
+python -m pipeline run --help
+```
+
+If you want to inspect the CLI source while reading the help output:
+
+```bash
+sed -n '1,220p' /app/pipeline/cli.py
+```
+
 ### `analyze`
 
 The `analyze` command does this:
@@ -195,6 +240,32 @@ Which video files should the pipeline operate on?
 It validates the source, filters by extension, and returns a list of `Path` objects.
 
 This is the first step because every later stage depends on having a clean list of source assets.
+
+### What to run now
+
+First, confirm that your input folder actually contains video files:
+
+```bash
+find "/app/Video Input" -maxdepth 2 -type f
+```
+
+If you want to inspect the ingestion code:
+
+```bash
+sed -n '1,200p' /app/pipeline/ingest.py
+```
+
+Then run the first real pipeline command:
+
+```bash
+python -m pipeline analyze
+```
+
+If you want to point at a different folder manually:
+
+```bash
+python -m pipeline analyze --source /app/my-other-video-folder
+```
 
 ## Step 3: Data models
 
@@ -244,6 +315,23 @@ It is the main handoff between analysis and generation.
 ### `ShotPlanItem` and `GenerationPlan`
 
 These represent the script broken into individual beats and the full list of shots to render.
+
+### What to run now
+
+Inspect the data model definitions:
+
+```bash
+sed -n '1,240p' /app/pipeline/models.py
+```
+
+After running `analyze`, inspect the generated JSON structure:
+
+```bash
+python -m json.tool /app/artifacts/session/video_analyses.json | sed -n '1,200p'
+python -m json.tool /app/artifacts/session/style_profile.json | sed -n '1,200p'
+```
+
+This lets you connect the Python dataclasses to the actual files being produced.
 
 ## Step 4: Video analysis
 
@@ -348,6 +436,33 @@ If `transcribe_voice=True`, it can also call the OpenAI transcription API.
 
 This is still a rough sketch of voice style, not speaker modeling.
 
+### What to run now
+
+Run analysis again if needed:
+
+```bash
+python -m pipeline analyze
+```
+
+Inspect the saved analysis artifacts:
+
+```bash
+python -m json.tool /app/artifacts/session/video_analyses.json | sed -n '1,220p'
+find /app/artifacts/session/frames -maxdepth 2 -type f | sort
+```
+
+If you want to read the analyzer source while comparing it with the JSON:
+
+```bash
+sed -n '1,260p' /app/pipeline/analyze.py
+```
+
+A good habit here is:
+
+1. look at one sampled frame
+2. look at its JSON entry
+3. check whether the brightness, palette, and pacing seem believable
+
 ## Step 5: Voice utilities
 
 `pipeline/voice.py` has two jobs.
@@ -372,6 +487,26 @@ This converts simple signal measurements into labels such as:
 If a transcript exists, it also tries to describe the phrasing style.
 
 This is deliberately heuristic and readable. That is good for learning, even though it is not yet sophisticated.
+
+### What to run now
+
+If your `.env` contains a valid `OPENAI_API_KEY`, try analysis with transcription enabled:
+
+```bash
+python -m pipeline analyze --transcribe-voice
+```
+
+Then inspect the audio fields:
+
+```bash
+python -m json.tool /app/artifacts/session/video_analyses.json | rg -n "voice_style|transcript|mean_level|peak_level|silence_ratio"
+```
+
+If you want to study the voice helper code:
+
+```bash
+sed -n '1,220p' /app/pipeline/voice.py
+```
 
 ## Step 6: Style aggregation
 
@@ -402,6 +537,26 @@ It also converts the estimated shot duration into a rough pacing label:
 3. `slow`
 
 This file is where you would later make the style representation smarter.
+
+### What to run now
+
+Inspect the aggregated style profile:
+
+```bash
+python -m json.tool /app/artifacts/session/style_profile.json | sed -n '1,220p'
+```
+
+Then compare it to the aggregation code:
+
+```bash
+sed -n '1,220p' /app/pipeline/style.py
+```
+
+At this stage, ask:
+
+1. Does the pacing label match the reference videos?
+2. Do the dominant colors feel right?
+3. Does the voice summary sound plausible?
 
 ## Step 7: Planning from a script
 
@@ -440,6 +595,38 @@ Right now this note is not consumed by a generation model, but it is still valua
 ### `_overlay_text`
 
 This shortens the script segment so it can be displayed on screen in the prototype renderer.
+
+### What to run now
+
+First, inspect your script:
+
+```bash
+sed -n '1,120p' "/app/Video Input/script.txt"
+```
+
+Then generate the plan and the draft:
+
+```bash
+python -m pipeline generate
+```
+
+Now inspect the shot plan:
+
+```bash
+python -m json.tool /app/artifacts/session/shot_plan.json | sed -n '1,260p'
+```
+
+And compare it with the planner code:
+
+```bash
+sed -n '1,220p' /app/pipeline/planning.py
+```
+
+This is the moment to check whether:
+
+1. each line or sentence became a sensible shot
+2. the durations feel reasonable
+3. the visual notes are useful
 
 ## Step 8: Rendering
 
@@ -482,6 +669,38 @@ Draws a rounded dark panel, a color accent bar, and the text overlay using Pillo
 
 If you provide a narration file, `ffmpeg` combines it with the silent rendered video.
 
+### What to run now
+
+Generate the draft video if you have not done it already:
+
+```bash
+python -m pipeline generate
+```
+
+Confirm the output exists:
+
+```bash
+ls -lh "/app/Video Output"
+```
+
+If `ffprobe` is available in your environment, inspect the generated file:
+
+```bash
+ffprobe "/app/Video Output/draft.mp4"
+```
+
+If you want to read the renderer code while looking at the output:
+
+```bash
+sed -n '1,260p' /app/pipeline/render.py
+```
+
+At this step, focus on three questions:
+
+1. Does the video feel related to the references?
+2. Is the pacing acceptable?
+3. Is the text overlay readable?
+
 ## 7. What to inspect after a run
 
 When you run the pipeline, do not jump straight to the final video.
@@ -497,6 +716,12 @@ Look here to answer:
 3. Did the color palette feel right?
 4. Did audio detection work?
 
+Command:
+
+```bash
+python -m json.tool /app/artifacts/session/video_analyses.json | sed -n '1,220p'
+```
+
 ### `style_profile.json`
 
 Look here to answer:
@@ -504,6 +729,12 @@ Look here to answer:
 1. Does the combined style summary feel true to the reference videos?
 2. Is the pacing label believable?
 3. Are the dominant colors reasonable?
+
+Command:
+
+```bash
+python -m json.tool /app/artifacts/session/style_profile.json | sed -n '1,220p'
+```
 
 ### `shot_plan.json`
 
@@ -513,12 +744,24 @@ Look here to answer:
 2. Are the durations okay?
 3. Is the visual direction helpful?
 
+Command:
+
+```bash
+python -m json.tool /app/artifacts/session/shot_plan.json | sed -n '1,260p'
+```
+
 ### `frames/`
 
 Look here to answer:
 
 1. Did we sample useful reference frames?
 2. Are these the kinds of frames we want the renderer to reuse?
+
+Command:
+
+```bash
+find /app/artifacts/session/frames -maxdepth 2 -type f | sort
+```
 
 ### `VIDEO_OUTPUT_DIR/OUTPUT_FILENAME`
 
@@ -527,6 +770,12 @@ Look here to answer:
 1. Does the output visually feel related to the source?
 2. Is the pacing okay?
 3. Is the overlay text readable?
+
+Command:
+
+```bash
+ls -lh "/app/Video Output"
+```
 
 ## 8. What is still missing for a real app
 
@@ -670,6 +919,13 @@ Goal:
 
 Understand what goes in, what comes out, and what data objects connect the stages.
 
+Commands:
+
+```bash
+sed -n '1,220p' /app/pipeline/cli.py
+sed -n '1,240p' /app/pipeline/models.py
+```
+
 ### Pass 2: Understand analysis
 
 Read:
@@ -682,6 +938,14 @@ Goal:
 
 Understand how raw video becomes measurable style data.
 
+Commands:
+
+```bash
+sed -n '1,200p' /app/pipeline/ingest.py
+sed -n '1,260p' /app/pipeline/analyze.py
+sed -n '1,220p' /app/pipeline/voice.py
+```
+
 ### Pass 3: Understand generation planning
 
 Read:
@@ -693,6 +957,13 @@ Goal:
 
 Understand how the code turns measurements into decisions.
 
+Commands:
+
+```bash
+sed -n '1,220p' /app/pipeline/style.py
+sed -n '1,220p' /app/pipeline/planning.py
+```
+
 ### Pass 4: Understand rendering
 
 Read:
@@ -702,6 +973,12 @@ Read:
 Goal:
 
 Understand how the final `.mp4` is assembled.
+
+Commands:
+
+```bash
+sed -n '1,260p' /app/pipeline/render.py
+```
 
 ### Pass 5: Run and inspect artifacts
 
@@ -715,6 +992,17 @@ Run the pipeline on a tiny example and compare:
 
 This is where the code usually clicks.
 
+Commands:
+
+```bash
+python -m pipeline analyze
+python -m pipeline generate
+python -m json.tool /app/artifacts/session/video_analyses.json | sed -n '1,160p'
+python -m json.tool /app/artifacts/session/style_profile.json | sed -n '1,160p'
+python -m json.tool /app/artifacts/session/shot_plan.json | sed -n '1,200p'
+ls -lh "/app/Video Output"
+```
+
 ## 11. A concrete practice exercise
 
 A good next exercise is:
@@ -726,6 +1014,15 @@ A good next exercise is:
 5. Compare each shot to the rendered video.
 6. Change one thing in the planner, such as duration logic.
 7. Run it again and compare results.
+
+Concrete command flow:
+
+```bash
+sed -n '1,120p' "/app/Video Input/script.txt"
+python -m pipeline generate
+python -m json.tool /app/artifacts/session/shot_plan.json | sed -n '1,220p'
+ls -lh "/app/Video Output"
+```
 
 This will teach you more quickly than reading passively.
 
