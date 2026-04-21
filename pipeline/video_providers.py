@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
+import json
 import mimetypes
 import subprocess
 import time
@@ -195,11 +198,7 @@ class KlingVideoProvider(VideoProvider):
             )
 
         base_url = request.settings.kling_base_url.rstrip("/")
-        headers = {
-            "X-Kling-API-Access-Key": request.settings.kling_api_access_key,
-            "X-Kling-API-Secret-Key": request.settings.kling_api_secret_key,
-            "Content-Type": "application/json",
-        }
+        headers = _kling_headers(request.settings)
         endpoint, payload, used_references = _build_kling_payload(request)
         if request.negative_prompt:
             payload["negative_prompt"] = request.negative_prompt
@@ -350,7 +349,10 @@ def _build_kling_payload(request: VideoGenerationRequest) -> tuple[str, dict[str
             )
         selected = image_references[:max_images]
         payload = _kling_common_payload(request)
-        payload[generation.kling_model_field or "model_name"] = request.model_selection.model
+        payload[generation.kling_model_field or "model_name"] = _kling_model_name_for_endpoint(
+            request,
+            request.settings.kling_multi_image_endpoint,
+        )
         payload["image_list"] = [
             {"image": _kling_reference_value(reference, generation.kling_local_image_transport)}
             for reference in selected
@@ -361,14 +363,30 @@ def _build_kling_payload(request: VideoGenerationRequest) -> tuple[str, dict[str
     if mode in {"image_to_video", "image2video"} or image_url_references:
         endpoint = request.settings.kling_image_endpoint
         payload = _kling_common_payload(request)
-        payload["model"] = request.model_selection.model
+        payload[request.run_parameters.generation.kling_model_field or "model_name"] = _kling_model_name_for_endpoint(
+            request,
+            endpoint,
+        )
+        first_reference = image_url_references[:1]
+        if first_reference:
+            payload["image"] = image_url_references[0].url
         if image_url_references:
-            payload["image_urls"] = [reference.url for reference in image_url_references[:1]]
-        return endpoint, payload, [reference.path for reference in image_url_references[:1]]
+            return endpoint, payload, [reference.path for reference in first_reference]
+        first_local_reference = _first_local_reference(request.references, media_kind="image")
+        if first_local_reference is not None:
+            payload["image"] = _kling_reference_value(
+                first_local_reference,
+                generation.kling_local_image_transport,
+            )
+            return endpoint, payload, [first_local_reference.path]
+        return endpoint, payload, []
 
     endpoint = request.settings.kling_text_endpoint
     payload = _kling_common_payload(request)
-    payload["model"] = request.model_selection.model
+    payload[request.run_parameters.generation.kling_model_field or "model_name"] = _kling_model_name_for_endpoint(
+        request,
+        endpoint,
+    )
     return endpoint, payload, []
 
 
@@ -378,14 +396,64 @@ def _kling_common_payload(request: VideoGenerationRequest) -> dict[str, Any]:
         "prompt": request.prompt[:1000],
         "duration": str(request.duration_seconds),
         "aspect_ratio": request.aspect_ratio or "9:16",
-        "mode": generation.kling_mode or request.model_selection.kling_mode or "standard",
-        "sound": bool(generation.kling_sound or request.model_selection.kling_sound),
+        "mode": _normalize_kling_mode(generation.kling_mode or request.model_selection.kling_mode),
+        "sound": "on" if (generation.kling_sound or request.model_selection.kling_sound) else "off",
     }
     if request.resolution:
         payload["resolution"] = request.resolution
     if generation.seed is not None:
         payload["seed"] = generation.seed
     return payload
+
+
+def _kling_model_name_for_endpoint(request: VideoGenerationRequest, endpoint: str) -> str:
+    model_name = request.model_selection.model
+    if endpoint == request.settings.kling_multi_image_endpoint:
+        # The current official multi-image endpoint only documents kling-v1-6.
+        return "kling-v1-6"
+    return model_name
+
+
+def _kling_headers(settings: Settings) -> dict[str, str]:
+    token = _kling_bearer_token(
+        settings.kling_api_access_key or "",
+        settings.kling_api_secret_key or "",
+    )
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+
+def _kling_bearer_token(access_key: str, secret_key: str) -> str:
+    now = int(time.time())
+    header = {"alg": "HS256", "typ": "JWT"}
+    payload = {
+        "iss": access_key,
+        "exp": now + 1800,
+        "nbf": now - 5,
+    }
+    signing_input = ".".join((_jwt_b64url(header), _jwt_b64url(payload)))
+    signature = hmac.new(
+        secret_key.encode("utf-8"),
+        signing_input.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    return f"{signing_input}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode('ascii')}"
+
+
+def _jwt_b64url(value: dict[str, Any]) -> str:
+    encoded = json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return base64.urlsafe_b64encode(encoded).rstrip(b"=").decode("ascii")
+
+
+def _normalize_kling_mode(mode: str | None) -> str:
+    lowered = (mode or "").strip().lower()
+    if lowered in {"", "standard", "std"}:
+        return "std"
+    if lowered in {"professional", "pro"}:
+        return "pro"
+    return lowered
 
 
 def _kling_reference_value(reference: PreparedReference, transport: str) -> str | None:

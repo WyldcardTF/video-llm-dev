@@ -248,11 +248,11 @@ Google Veo:
 Kling:
 
 1. Requires `KLING_API_ACCESS_KEY` and `KLING_API_SECRET_KEY`.
-2. Uses `KLING_BASE_URL`, defaulting to `https://api.klingapi.com`.
+2. Uses `KLING_BASE_URL`, defaulting to `https://api-singapore.klingai.com`.
 3. Uses multi-image-to-video by default.
 4. Sends 2-4 scene images in `image_list`.
 5. Sends local images as base64 by default, so you do not need public hosting for early tests.
-6. Keeps `sound: false`, `duration: "5"`, and `resolution: "540p"` in the default run config.
+6. Keeps `sound: "off"`, `duration: "5"`, and `resolution: "540p"` in the default run config.
 7. Polls the returned task id and downloads the result URL.
 
 ## Kling Multi-Image To Video
@@ -268,13 +268,13 @@ The request body looks like:
 
 ```json
 {
-  "model_name": "kling-v2.6",
+  "model_name": "kling-v2-6",
   "prompt": "Scene prompt...",
   "duration": "5",
   "aspect_ratio": "9:16",
   "resolution": "540p",
-  "mode": "standard",
-  "sound": false,
+  "mode": "std",
+  "sound": "off",
   "image_list": [
     { "image": "<base64 image 1 or public URL>" },
     { "image": "<base64 image 2 or public URL>" }

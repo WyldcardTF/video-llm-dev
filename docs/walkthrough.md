@@ -86,7 +86,7 @@ Kling:
 ```bash
 KLING_API_ACCESS_KEY=...
 KLING_API_SECRET_KEY=...
-KLING_BASE_URL=https://api.klingapi.com
+KLING_BASE_URL=https://api-singapore.klingai.com
 ```
 
 For the default Kling setup, that is enough. The pipeline sends 2-4 local scene images as base64 through the multi-image-to-video endpoint.

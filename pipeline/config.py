@@ -137,7 +137,7 @@ def get_settings() -> Settings:
         google_vertex_access_token=_env_text("GOOGLE_VERTEX_ACCESS_TOKEN"),
         kling_api_access_key=_env_text("KLING_API_ACCESS_KEY"),
         kling_api_secret_key=_env_text("KLING_API_SECRET_KEY"),
-        kling_base_url=_env_text("KLING_BASE_URL", "https://api.klingapi.com") or "https://api.klingapi.com",
+        kling_base_url=_env_text("KLING_BASE_URL", "https://api-singapore.klingai.com") or "https://api-singapore.klingai.com",
         kling_multi_image_endpoint=_env_text(
             "KLING_MULTI_IMAGE_ENDPOINT",
             "/v1/videos/multi-image2video",

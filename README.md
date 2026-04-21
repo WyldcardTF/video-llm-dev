@@ -55,12 +55,12 @@ GOOGLE_VERTEX_PROJECT=...
 GOOGLE_VERTEX_LOCATION=us-central1
 KLING_API_ACCESS_KEY=...
 KLING_API_SECRET_KEY=...
-KLING_BASE_URL=https://api.klingapi.com
+KLING_BASE_URL=https://api-singapore.klingai.com
 ```
 
 Google Veo uses Vertex AI credentials. If `GOOGLE_VERTEX_ACCESS_TOKEN` is blank, the pipeline tries Application Default Credentials and then `gcloud auth print-access-token`.
 
-The default Kling flow uses `POST /v1/videos/multi-image2video` and sends local scene images as base64, so you do not need public image hosting for first tests.
+The default Kling flow uses the official `app.klingai.com` API domain, `POST /v1/videos/multi-image2video`, and sends local scene images as base64, so you do not need public image hosting for first tests.
 
 ## Run It
 
