@@ -86,6 +86,7 @@ def plan_from_script(
                 generation_prompt=generation_prompt,
                 negative_prompt=continuity_profile.negative_prompt,
                 scene_metadata=scene.metadata,
+                reference_assets=scene.reference_assets,
             )
         )
 
@@ -106,7 +107,7 @@ def plan_from_script(
         script_format=script_document.format,
         script_source_path=script_document.source_path,
         continuity_summary=continuity_summary,
-        generation_backend="motion_aware_draft",
+        generation_backend="auto",
         script_metadata=script_document.metadata,
     )
 
@@ -241,6 +242,10 @@ def _build_visual_direction(
             f" Use {selected_asset.media_kind} asset '{selected_asset.asset_type}' from {selected_asset.path} "
             f"with a { _motion_strategy_for_asset(selected_asset) } treatment."
         )
+    if scene.reference_assets:
+        base += " Scene reference assets: "
+        base += "; ".join(_reference_asset_text(reference) for reference in scene.reference_assets[:4])
+        base += "."
 
     detail_text = _format_scene_metadata(scene.metadata) if planning.include_scene_metadata_in_prompt else ""
     if detail_text:
@@ -334,6 +339,8 @@ def _select_asset_for_scene(
     ]
     fallback_types = [
         "reference_videos",
+        "general_asset_videos",
+        "general_asset_images",
         "closeup_videos",
         "broll_videos",
         "testimonials_videos",
@@ -343,6 +350,23 @@ def _select_asset_for_scene(
         "broll_images",
     ]
     search_types = preferred_types + [item for item in fallback_types if item not in preferred_types]
+
+    scene_reference_paths = {
+        _normalized_path(reference.path)
+        for reference in scene.reference_assets
+        if reference.path and not reference.path.startswith(("http://", "https://"))
+    }
+    if scene_reference_paths:
+        matching_assets = [
+            item
+            for item in asset_inventory.items
+            if _normalized_path(item.path) in scene_reference_paths
+        ]
+        video_matches = [item for item in matching_assets if item.media_kind == "video"]
+        if video_matches:
+            return video_matches[(index - 1) % len(video_matches)]
+        if matching_assets:
+            return matching_assets[(index - 1) % len(matching_assets)]
 
     for asset_type in search_types:
         candidates = [
@@ -373,6 +397,9 @@ def _resolve_reference_image(
 ) -> str | None:
     if scene.reference_image:
         return scene.reference_image
+    for reference in scene.reference_assets:
+        if reference.media_kind == "image":
+            return reference.path
     if selected_asset and selected_asset.media_kind == "image":
         return selected_asset.path
     return reference_images[(index - 1) % len(reference_images)]
@@ -380,10 +407,10 @@ def _resolve_reference_image(
 
 def _motion_strategy_for_asset(selected_asset: AssetCandidate | None) -> str:
     if selected_asset is None:
-        return "still_pan"
+        return "text_to_video_generation"
     if selected_asset.media_kind == "video":
-        return "source_video_excerpt"
-    return "still_parallax"
+        return "video_reference_guided_generation"
+    return "image_reference_guided_generation"
 
 
 def _scene_continuity_notes(scene: ScriptScene, continuity_profile: ContinuityProfile) -> list[str]:
@@ -409,12 +436,18 @@ def _build_generation_prompt(
         asset_text = (
             f"use the {selected_asset.asset_type} {selected_asset.media_kind} asset at {selected_asset.path}"
         )
+    reference_text = ""
+    if scene.reference_assets:
+        reference_text = " Scene references: " + "; ".join(
+            _reference_asset_text(reference) for reference in scene.reference_assets[:6]
+        ) + "."
 
     scene_detail = _format_scene_metadata(scene.metadata)
     prompt = (
         f"{continuity_profile.positive_prompt_prefix} "
         f"Scene: {scene.name}. Action: {scene.description}. "
         f"Motion strategy: {motion_strategy}. Asset guidance: {asset_text}. "
+        f"{reference_text} "
         f"Target pacing: {style_profile.pacing_label}. Voice tone: {style_profile.voice_style}. "
     )
     if scene_detail:
@@ -422,6 +455,27 @@ def _build_generation_prompt(
     if generation_model:
         prompt += f"Intended downstream generation model: {generation_model}. "
     return prompt.strip()
+
+
+def _reference_asset_text(reference: object) -> str:
+    path = getattr(reference, "path", "")
+    role = getattr(reference, "role", "asset")
+    label = getattr(reference, "label", "") or path
+    prompt_hint = getattr(reference, "prompt_hint", "")
+    provider_use = getattr(reference, "provider_use", "auto")
+    parts = [f"{label} ({role}, {provider_use})"]
+    if prompt_hint:
+        parts.append(str(prompt_hint))
+    return " - ".join(parts)
+
+
+def _normalized_path(value: str) -> str:
+    try:
+        from pathlib import Path
+
+        return str(Path(value).expanduser().resolve())
+    except Exception:
+        return value
 
 
 def _resolve_clip_window(

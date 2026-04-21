@@ -4,6 +4,8 @@ python-dotenv
 pydantic
 PyYAML
 tqdm
+requests
+google-auth
 
 # Video processing
 moviepy

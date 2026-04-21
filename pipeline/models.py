@@ -99,7 +99,9 @@ class GeneratedAssetRecord:
     status: str
     asset_path: str | None = None
     model: str | None = None
+    model_preset: str | None = None
     source_asset_path: str | None = None
+    reference_asset_paths: list[str] = field(default_factory=list)
     prompt: str = ""
     revised_prompt: str | None = None
     remote_id: str | None = None
@@ -126,7 +128,7 @@ class ShotPlanItem:
     media_kind: str = "image"
     clip_start_s: float | None = None
     clip_duration_s: float | None = None
-    motion_strategy: str = "still_pan"
+    motion_strategy: str = "generated_video"
     text_overlay: str | None = None
     transition: str = "cut"
     time_start: str | None = None
@@ -136,6 +138,7 @@ class ShotPlanItem:
     generation_prompt: str | None = None
     negative_prompt: str | None = None
     scene_metadata: dict[str, Any] = field(default_factory=dict)
+    reference_assets: list["SceneReferenceAsset"] = field(default_factory=list)
 
 
 @dataclass
@@ -147,7 +150,7 @@ class GenerationPlan:
     script_format: str = "text"
     script_source_path: str | None = None
     continuity_summary: str = ""
-    generation_backend: str = "draft_compositor"
+    generation_backend: str = "auto"
     script_metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -162,6 +165,7 @@ class ScriptScene:
     text_overlay: str | None = None
     transition: str | None = None
     reference_image: str | None = None
+    reference_assets: list["SceneReferenceAsset"] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -171,3 +175,14 @@ class ScriptDocument:
     format: str
     scenes: list[ScriptScene] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SceneReferenceAsset:
+    path: str
+    role: str = "asset"
+    label: str = ""
+    prompt_hint: str = ""
+    provider_use: str = "auto"
+    media_kind: str | None = None
+    source_field: str | None = None

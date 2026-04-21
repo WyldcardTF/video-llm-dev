@@ -12,18 +12,18 @@ from .io_utils import slugify
 
 @dataclass(frozen=True)
 class AnalysisParameters:
-    sample_frames: int = 6
-    timeline_scan_points: int = 48
+    sample_frames: int = 12
+    timeline_scan_points: int = 96
     transcribe_voice: bool = False
-    transcription_max_seconds: int = 60
-    audio_analysis_max_seconds: int = 90
+    transcription_max_seconds: int = 90
+    audio_analysis_max_seconds: int = 120
 
 
 @dataclass(frozen=True)
 class PlanningParameters:
     honor_script_timing: bool = True
     shot_duration_min_s: float = 2.0
-    shot_duration_max_s: float = 7.5
+    shot_duration_max_s: float = 12.0
     fallback_transition: str = "crossfade"
     include_scene_metadata_in_prompt: bool = True
 
@@ -37,31 +37,39 @@ class RenderParameters:
 
 @dataclass(frozen=True)
 class GenerationParameters:
-    backend: str = "draft_compositor"
+    backend: str = "auto"
     use_reference_input: bool = True
-    allow_fallback_to_draft: bool = True
-    image_quality: str = "medium"
-    image_size: str | None = None
+    reference_mode: str = "auto"
+    reference_asset_limit: int = 3
     video_size: str | None = None
+    video_resolution: str | None = "720p"
+    video_aspect_ratio: str | None = "9:16"
+    video_duration_seconds: int | None = None
     video_poll_interval_ms: int = 1000
+    public_asset_base_url: str | None = None
+    kling_mode: str | None = None
+    kling_sound: bool = False
+    google_output_gcs_uri: str | None = None
+    google_person_generation: str = "allow_adult"
+    google_sample_count: int = 1
+    seed: int | None = None
 
 
 @dataclass(frozen=True)
 class ModelParameters:
     transcription_model: str = "whisper-1"
     style_analysis_model: str = "heuristic_v1"
-    image_generation_model: str | None = None
-    video_generation_model: str | None = None
+    video_generation_model: str | None = "kling_2_6_std"
     voice_generation_model: str | None = None
 
 
 @dataclass(frozen=True)
 class SelectionParameters:
     preferred_reference_types: list[str] = field(
-        default_factory=lambda: ["reference_videos", "closeup_videos", "broll_videos"]
+        default_factory=lambda: ["reference_videos", "general_asset_videos", "closeup_videos", "broll_videos"]
     )
     require_videos: bool = True
-    allow_images_as_fallback: bool = True
+    allow_images_as_fallback: bool = False
     max_reference_videos: int | None = None
 
 
@@ -105,7 +113,15 @@ class RunParameters:
         path = Path(self.script_file).expanduser()
         if path.is_absolute():
             return path
-        return settings.scripts_dir / path
+        candidates = [
+            self.input_root(settings) / path,
+            self.input_root(settings) / "Scripts" / path,
+            settings.scripts_dir / path,
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return candidates[1]
 
     def output_path(self, settings: Settings) -> Path:
         path = Path(self.output_file).expanduser()
@@ -126,7 +142,10 @@ class RunParameters:
 
     def required_reference_video_source(self, settings: Settings) -> Path:
         root = self.input_root(settings)
-        reference_subfolder = self.asset_subfolders.get("reference_videos", "reference_videos")
+        reference_subfolder = self.asset_subfolders.get(
+            "reference_videos",
+            "Supporting Data/general_assets/video",
+        )
         return root / reference_subfolder
 
     def supporting_video_sources(self, settings: Settings) -> list[Path]:
@@ -186,7 +205,11 @@ def load_run_parameters(path: Path) -> RunParameters:
         analysis_video_subfolders=_get_str_list(
             payload,
             "analysis_video_subfolders",
-            default=["reference_videos", "closeups/videos", "broll/videos"],
+            default=[
+                "Supporting Data/general_assets/video",
+                "Supporting Data/closeups/videos",
+                "Supporting Data/broll/videos",
+            ],
         ),
         asset_subfolders=_build_asset_subfolders(payload.get("asset_subfolders")),
         analysis=_build_analysis(payload.get("analysis")),
@@ -224,25 +247,27 @@ def load_run_parameters(path: Path) -> RunParameters:
 
 def _build_asset_subfolders(payload: Any) -> dict[str, str]:
     defaults = {
-        "reference_videos": "reference_videos",
-        "closeup_videos": "closeups/videos",
-        "closeup_images": "closeups/images",
-        "broll_videos": "broll/videos",
-        "broll_images": "broll/images",
-        "testimonials_videos": "testimonials/videos",
-        "portraits": "portraits",
-        "product_shots": "product_shots",
-        "three_d_models": "3d_models",
-        "style_references": "style_references",
-        "voiceovers": "audio/voiceovers",
-        "music": "audio/music",
-        "sfx": "audio/sfx",
-        "brand_assets": "brand_assets",
-        "logos": "brand_assets/logos",
-        "overlays": "overlays",
-        "documents": "docs",
-        "storyboards": "docs/storyboards",
-        "transcripts": "docs/transcripts",
+        "reference_videos": "Supporting Data/general_assets/video",
+        "general_asset_videos": "Supporting Data/general_assets/video",
+        "general_asset_images": "Supporting Data/general_assets/images",
+        "closeup_videos": "Supporting Data/closeups/videos",
+        "closeup_images": "Supporting Data/closeups/images",
+        "broll_videos": "Supporting Data/broll/videos",
+        "broll_images": "Supporting Data/broll/images",
+        "testimonials_videos": "Supporting Data/testimonials/videos",
+        "portraits": "Supporting Data/portraits",
+        "product_shots": "Supporting Data/product_shots",
+        "three_d_models": "Supporting Data/3d_models",
+        "style_references": "Supporting Data/style_references",
+        "voiceovers": "Supporting Data/audio/voiceovers",
+        "music": "Supporting Data/audio/music",
+        "sfx": "Supporting Data/audio/sfx",
+        "brand_assets": "Supporting Data/brand_assets",
+        "logos": "Supporting Data/brand_assets/logos",
+        "overlays": "Supporting Data/overlays",
+        "documents": "Supporting Data/docs",
+        "storyboards": "Supporting Data/docs/storyboards",
+        "transcripts": "Supporting Data/docs/transcripts",
     }
     if payload is None:
         return defaults
@@ -261,11 +286,11 @@ def _build_analysis(payload: Any) -> AnalysisParameters:
     if not isinstance(payload, dict):
         raise ValueError("analysis must be a YAML mapping.")
     return AnalysisParameters(
-        sample_frames=_get_int(payload, "sample_frames", default=6),
-        timeline_scan_points=_get_int(payload, "timeline_scan_points", default=48),
+        sample_frames=_get_int(payload, "sample_frames", default=12),
+        timeline_scan_points=_get_int(payload, "timeline_scan_points", default=96),
         transcribe_voice=_get_bool(payload, "transcribe_voice", default=False),
-        transcription_max_seconds=_get_int(payload, "transcription_max_seconds", default=60),
-        audio_analysis_max_seconds=_get_int(payload, "audio_analysis_max_seconds", default=90),
+        transcription_max_seconds=_get_int(payload, "transcription_max_seconds", default=90),
+        audio_analysis_max_seconds=_get_int(payload, "audio_analysis_max_seconds", default=120),
     )
 
 
@@ -276,7 +301,7 @@ def _build_planning(payload: Any) -> PlanningParameters:
     return PlanningParameters(
         honor_script_timing=_get_bool(payload, "honor_script_timing", default=True),
         shot_duration_min_s=_get_float(payload, "shot_duration_min_s", default=2.0),
-        shot_duration_max_s=_get_float(payload, "shot_duration_max_s", default=7.5),
+        shot_duration_max_s=_get_float(payload, "shot_duration_max_s", default=12.0),
         fallback_transition=_get_text(payload, "fallback_transition", default="crossfade") or "crossfade",
         include_scene_metadata_in_prompt=_get_bool(
             payload,
@@ -302,13 +327,27 @@ def _build_generation(payload: Any) -> GenerationParameters:
     if not isinstance(payload, dict):
         raise ValueError("generation must be a YAML mapping.")
     return GenerationParameters(
-        backend=_get_text(payload, "backend", default="draft_compositor") or "draft_compositor",
+        backend=_get_text(payload, "backend", default="auto") or "auto",
         use_reference_input=_get_bool(payload, "use_reference_input", default=True),
-        allow_fallback_to_draft=_get_bool(payload, "allow_fallback_to_draft", default=True),
-        image_quality=_get_text(payload, "image_quality", default="medium") or "medium",
-        image_size=_get_text(payload, "image_size"),
+        reference_mode=_get_text(payload, "reference_mode", default="auto") or "auto",
+        reference_asset_limit=_get_int(payload, "reference_asset_limit", default=3),
         video_size=_get_text(payload, "video_size"),
+        video_resolution=_get_text(payload, "video_resolution", default="720p"),
+        video_aspect_ratio=_get_text(payload, "video_aspect_ratio", default="9:16"),
+        video_duration_seconds=_get_optional_int(payload, "video_duration_seconds"),
         video_poll_interval_ms=_get_int(payload, "video_poll_interval_ms", default=1000),
+        public_asset_base_url=_get_text(payload, "public_asset_base_url"),
+        kling_mode=_get_text(payload, "kling_mode"),
+        kling_sound=_get_bool(payload, "kling_sound", default=False),
+        google_output_gcs_uri=_get_text(payload, "google_output_gcs_uri"),
+        google_person_generation=_get_text(
+            payload,
+            "google_person_generation",
+            default="allow_adult",
+        )
+        or "allow_adult",
+        google_sample_count=_get_int(payload, "google_sample_count", default=1),
+        seed=_get_optional_int(payload, "seed"),
     )
 
 
@@ -320,8 +359,8 @@ def _build_models(payload: Any) -> ModelParameters:
         transcription_model=_get_text(payload, "transcription_model", default="whisper-1") or "whisper-1",
         style_analysis_model=_get_text(payload, "style_analysis_model", default="heuristic_v1")
         or "heuristic_v1",
-        image_generation_model=_get_text(payload, "image_generation_model"),
-        video_generation_model=_get_text(payload, "video_generation_model"),
+        video_generation_model=_get_text(payload, "video_generation_model", default="kling_2_6_std")
+        or "kling_2_6_std",
         voice_generation_model=_get_text(payload, "voice_generation_model"),
     )
 
@@ -334,10 +373,10 @@ def _build_selection(payload: Any) -> SelectionParameters:
         preferred_reference_types=_get_str_list(
             payload,
             "preferred_reference_types",
-            default=["reference_videos", "closeup_videos", "broll_videos"],
+            default=["reference_videos", "general_asset_videos", "closeup_videos", "broll_videos"],
         ),
         require_videos=_get_bool(payload, "require_videos", default=True),
-        allow_images_as_fallback=_get_bool(payload, "allow_images_as_fallback", default=True),
+        allow_images_as_fallback=_get_bool(payload, "allow_images_as_fallback", default=False),
         max_reference_videos=_get_optional_int(payload, "max_reference_videos"),
     )
 

@@ -21,6 +21,7 @@ from .run_config import RunParameters, load_run_parameters
 from .script_io import load_script_file
 from .models import AssetInventory, ContinuityProfile, StyleProfile, VideoAnalysis
 from .style import build_style_profile, load_style_profile
+from .video_models import list_video_model_presets, resolve_video_model_selection
 
 settings = get_settings()
 DEFAULT_RUN_CONFIG_PATH = Path("run_parameters.yaml")
@@ -37,7 +38,15 @@ def _resolve_script_path(run_parameters: RunParameters, script_override: Path | 
     candidate = script_override.expanduser()
     if candidate.is_absolute():
         return candidate
-    return settings.scripts_dir / candidate
+    candidates = [
+        run_parameters.input_root(settings) / candidate,
+        run_parameters.input_root(settings) / "Scripts" / candidate,
+        settings.scripts_dir / candidate,
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return candidates[1]
 
 
 def _resolve_output_path(run_parameters: RunParameters, output_override: Path | None) -> Path:
@@ -157,6 +166,7 @@ def _save_resolved_run_config(run_parameters: RunParameters, project_dir: Path) 
 
     payload = {
         "run_parameters": asdict(run_parameters),
+        "video_model_selection": asdict(resolve_video_model_selection(run_parameters)),
         "resolved_paths": {
             "script_file": str(run_parameters.script_path(settings)),
             "output_file": str(run_parameters.output_path(settings)),
@@ -243,10 +253,7 @@ def generate(
         planning=run_parameters.planning,
         asset_inventory=asset_inventory,
         continuity_profile=continuity_profile,
-        generation_model=(
-            run_parameters.models.video_generation_model
-            or run_parameters.models.image_generation_model
-        ),
+        generation_model=run_parameters.models.video_generation_model,
     )
     plan, generated_assets_manifest = generate_assets_for_plan(
         plan=plan,
@@ -277,6 +284,11 @@ def generate(
         f"{resolve_generation_backend(run_parameters)} "
         f"(manifest: {settings.generated_assets_manifest_path(resolved_project_dir)})"
     )
+    model_selection = resolve_video_model_selection(run_parameters)
+    typer.echo(
+        f"Video model: {model_selection.label} ({model_selection.model}, "
+        f"price tier: {model_selection.price_tier})"
+    )
     typer.echo(f"Generated plan with {len(plan.items)} shots for run '{run_parameters.run_name}'.")
     typer.echo(f"Draft video saved to {render_path}")
 
@@ -301,6 +313,16 @@ def show_run_config(
 ) -> None:
     run_parameters = load_run_parameters(run_config)
     typer.echo(asdict(run_parameters))
+
+
+@app.command("video-models")
+def video_models() -> None:
+    """List friendly video model presets accepted by models.video_generation_model."""
+    for preset in list_video_model_presets():
+        typer.echo(
+            f"{preset.preset_id}: {preset.label} | provider={preset.provider} | "
+            f"model={preset.model} | price={preset.price_tier} | quality={preset.quality_tier}"
+        )
 
 
 if __name__ == "__main__":

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import base64
-import subprocess
+import urllib.parse
 from dataclasses import replace
 from pathlib import Path
 
@@ -10,27 +9,36 @@ import cv2
 from .config import Settings
 from .ingest import VIDEO_EXTENSIONS
 from .io_utils import ensure_dir
-from .models import GeneratedAssetManifest, GeneratedAssetRecord, GenerationPlan, ShotPlanItem, StyleProfile
+from .models import (
+    GeneratedAssetManifest,
+    GeneratedAssetRecord,
+    GenerationPlan,
+    SceneReferenceAsset,
+    ShotPlanItem,
+    StyleProfile,
+)
 from .run_config import RunParameters
+from .video_models import VideoModelSelection, resolve_video_model_selection
+from .video_providers import (
+    PreparedReference,
+    VideoGenerationRequest,
+    get_video_provider,
+)
+
+
+IMAGE_EXTENSIONS = {
+    ".bmp",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
 
 
 def resolve_generation_backend(run_parameters: RunParameters) -> str:
-    raw_backend = run_parameters.generation.backend.strip().lower()
-    aliases = {
-        "draft": "draft_compositor",
-        "draft_compositor": "draft_compositor",
-        "openai_image": "openai_image",
-        "openai_images": "openai_image",
-        "openai_video": "openai_video",
-        "openai_videos": "openai_video",
-    }
-    if raw_backend == "auto":
-        if run_parameters.models.video_generation_model:
-            return "openai_video"
-        if run_parameters.models.image_generation_model:
-            return "openai_image"
-        return "draft_compositor"
-    return aliases.get(raw_backend, raw_backend or "draft_compositor")
+    return resolve_video_model_selection(run_parameters).provider
 
 
 def generate_assets_for_plan(
@@ -40,177 +48,73 @@ def generate_assets_for_plan(
     settings: Settings,
     project_dir: Path,
 ) -> tuple[GenerationPlan, GeneratedAssetManifest]:
-    backend = resolve_generation_backend(run_parameters)
+    model_selection = resolve_video_model_selection(run_parameters)
+    provider = get_video_provider(model_selection.provider)
     output_dir = ensure_dir(settings.generated_assets_dir(project_dir))
     manifest = GeneratedAssetManifest(
-        backend=backend,
+        backend=model_selection.provider,
         output_dir=str(output_dir),
     )
-
-    if backend == "draft_compositor":
-        return replace(plan, generation_backend=backend), manifest
-
-    if backend not in {"openai_image", "openai_video"}:
-        raise ValueError(
-            "Unsupported generation backend "
-            f"'{backend}'. Expected one of: draft_compositor, auto, openai_image, openai_video."
-        )
-
-    if not settings.openai_api_key:
-        raise RuntimeError(
-            "An OpenAI API key is required for generated assets. "
-            "Set OPENAI_API_KEY in .env or choose generation.backend: draft_compositor."
-        )
-
-    from openai import OpenAI
-
-    client = OpenAI(api_key=settings.openai_api_key)
     updated_items: list[ShotPlanItem] = []
 
     for item in plan.items:
-        try:
-            if backend == "openai_video":
-                updated_item, record = _generate_video_asset(
-                    client=client,
-                    item=item,
-                    style_profile=style_profile,
-                    run_parameters=run_parameters,
-                    output_dir=output_dir,
-                )
-            else:
-                updated_item, record = _generate_image_asset(
-                    client=client,
-                    item=item,
-                    style_profile=style_profile,
-                    run_parameters=run_parameters,
-                    output_dir=output_dir,
-                )
-        except Exception as exc:
-            if not run_parameters.generation.allow_fallback_to_draft:
-                raise
-            updated_item = item
-            record = GeneratedAssetRecord(
-                shot_index=item.index,
-                backend=backend,
-                media_kind=item.media_kind,
-                status="fallback",
-                source_asset_path=item.source_asset_path,
-                prompt=_build_backend_prompt(item),
-                error=str(exc),
-            )
-
+        updated_item, record = _generate_video_asset(
+            provider=provider,
+            item=item,
+            style_profile=style_profile,
+            run_parameters=run_parameters,
+            settings=settings,
+            output_dir=output_dir,
+            model_selection=model_selection,
+        )
         updated_items.append(updated_item)
         manifest.items.append(record)
 
-    return replace(plan, items=updated_items, generation_backend=backend), manifest
-
-
-def _generate_image_asset(
-    client: object,
-    item: ShotPlanItem,
-    style_profile: StyleProfile,
-    run_parameters: RunParameters,
-    output_dir: Path,
-) -> tuple[ShotPlanItem, GeneratedAssetRecord]:
-    model_name = run_parameters.models.image_generation_model or "gpt-image-1"
-    prompt = _build_backend_prompt(item)
-    output_path = output_dir / f"shot_{item.index:03d}.png"
-    reference_path = _prepare_image_reference(item, output_dir)
-    size = run_parameters.generation.image_size or _derive_image_size(style_profile)
-    quality = run_parameters.generation.image_quality
-
-    if reference_path and run_parameters.generation.use_reference_input:
-        response = client.images.edit(
-            model=model_name,
-            image=reference_path,
-            prompt=prompt,
-            quality=quality,
-            size=size,
-            output_format="png",
-        )
-    else:
-        response = client.images.generate(
-            model=model_name,
-            prompt=prompt,
-            quality=quality,
-            size=size,
-            output_format="png",
-        )
-
-    images = getattr(response, "data", None) or []
-    if not images:
-        raise RuntimeError("The image generation backend returned no images.")
-
-    image_payload = images[0]
-    encoded = getattr(image_payload, "b64_json", None)
-    if not encoded:
-        raise RuntimeError("The image generation backend did not return base64 image content.")
-
-    output_path.write_bytes(base64.b64decode(encoded))
-    revised_prompt = getattr(image_payload, "revised_prompt", None)
-
-    updated_item = replace(
-        item,
-        reference_image=str(output_path),
-        source_asset_path=str(output_path),
-        source_asset_type="generated_image",
-        media_kind="image",
-        clip_start_s=None,
-        clip_duration_s=None,
-        motion_strategy="generated_image",
-    )
-    record = GeneratedAssetRecord(
-        shot_index=item.index,
-        backend="openai_image",
-        media_kind="image",
-        status="generated",
-        asset_path=str(output_path),
-        model=model_name,
-        source_asset_path=item.source_asset_path,
-        prompt=prompt,
-        revised_prompt=revised_prompt,
-    )
-    return updated_item, record
+    return replace(plan, items=updated_items, generation_backend=model_selection.provider), manifest
 
 
 def _generate_video_asset(
-    client: object,
+    provider: object,
     item: ShotPlanItem,
     style_profile: StyleProfile,
     run_parameters: RunParameters,
+    settings: Settings,
     output_dir: Path,
+    model_selection: VideoModelSelection,
 ) -> tuple[ShotPlanItem, GeneratedAssetRecord]:
-    model_name = run_parameters.models.video_generation_model or "sora-2"
-    prompt = _build_backend_prompt(item)
     output_path = output_dir / f"shot_{item.index:03d}.mp4"
-    size = run_parameters.generation.video_size or _derive_video_size(style_profile)
-    seconds = _derive_video_seconds(item.duration_s)
-    input_reference = None
-    if run_parameters.generation.use_reference_input:
-        input_reference = _prepare_video_reference(item, output_dir, seconds=seconds)
+    size = _derive_video_size(style_profile, run_parameters, model_selection)
+    aspect_ratio = _derive_aspect_ratio(style_profile, run_parameters, model_selection, size)
+    resolution = _derive_resolution(run_parameters, model_selection)
+    seconds = _derive_video_seconds(item.duration_s, model_selection, run_parameters)
+    references = _prepare_references(
+        item=item,
+        run_parameters=run_parameters,
+        settings=settings,
+        output_dir=output_dir,
+        size=size,
+        provider_name=model_selection.provider,
+    )
+    prompt = _build_backend_prompt(item, references, model_selection)
 
-    request_kwargs = {
-        "model": model_name,
-        "prompt": prompt,
-        "seconds": seconds,
-        "size": size,
-        "poll_interval_ms": run_parameters.generation.video_poll_interval_ms,
-    }
-    if input_reference is not None:
-        request_kwargs["input_reference"] = input_reference
-
-    video = client.videos.create_and_poll(**request_kwargs)
-    status = getattr(video, "status", None)
-    if status != "completed":
-        error = getattr(video, "error", None)
-        raise RuntimeError(f"Video generation failed with status={status} error={error}")
-
-    content = client.videos.download_content(video.id, variant="video")
-    output_path.write_bytes(content.content)
+    request = VideoGenerationRequest(
+        prompt=prompt,
+        negative_prompt=item.negative_prompt or "",
+        output_path=output_path,
+        model_selection=model_selection,
+        run_parameters=run_parameters,
+        settings=settings,
+        duration_seconds=seconds,
+        size=size,
+        aspect_ratio=aspect_ratio,
+        resolution=resolution,
+        references=references,
+    )
+    result = provider.generate(request)  # type: ignore[attr-defined]
 
     updated_item = replace(
         item,
-        source_asset_path=str(output_path),
+        source_asset_path=str(result.asset_path),
         source_asset_type="generated_video",
         media_kind="video",
         clip_start_s=0.0,
@@ -219,112 +123,237 @@ def _generate_video_asset(
     )
     record = GeneratedAssetRecord(
         shot_index=item.index,
-        backend="openai_video",
+        backend=model_selection.provider,
         media_kind="video",
         status="generated",
-        asset_path=str(output_path),
-        model=model_name,
+        asset_path=str(result.asset_path),
+        model=model_selection.model,
+        model_preset=model_selection.preset_id,
         source_asset_path=item.source_asset_path,
+        reference_asset_paths=result.used_reference_paths,
         prompt=prompt,
-        remote_id=getattr(video, "id", None),
+        revised_prompt=result.revised_prompt,
+        remote_id=result.remote_id,
     )
     return updated_item, record
 
 
-def _build_backend_prompt(item: ShotPlanItem) -> str:
+def _build_backend_prompt(
+    item: ShotPlanItem,
+    references: list[PreparedReference],
+    model_selection: VideoModelSelection,
+) -> str:
     positive = item.generation_prompt or item.visual_direction or item.narration
-    negative = item.negative_prompt or ""
     prompt = positive.strip()
-    if negative:
-        prompt += f" Avoid: {negative.strip()}"
+    if references:
+        prompt += " Supporting references: "
+        prompt += "; ".join(
+            _reference_prompt_text(reference)
+            for reference in references
+        )
+        prompt += "."
+    prompt += (
+        f" Render as a newly generated animated/cinematic video clip, not a still image. "
+        f"Provider target: {model_selection.label}."
+    )
     return prompt.strip()
 
 
-def _prepare_image_reference(item: ShotPlanItem, output_dir: Path) -> Path | None:
-    candidates = [
-        item.reference_image,
-        item.source_asset_path,
+def _reference_prompt_text(reference: PreparedReference) -> str:
+    parts = [
+        f"role={reference.role}",
+        f"label={reference.label}",
     ]
-    for candidate in candidates:
-        if not candidate:
+    if reference.prompt_hint:
+        parts.append(f"meaning={reference.prompt_hint}")
+    if reference.provider_use:
+        parts.append(f"use={reference.provider_use}")
+    return ", ".join(parts)
+
+
+def _prepare_references(
+    item: ShotPlanItem,
+    run_parameters: RunParameters,
+    settings: Settings,
+    output_dir: Path,
+    size: str | None,
+    provider_name: str,
+) -> list[PreparedReference]:
+    if not run_parameters.generation.use_reference_input:
+        return []
+
+    raw_references = list(item.reference_assets)
+    if item.reference_image:
+        raw_references.append(
+            SceneReferenceAsset(
+                path=item.reference_image,
+                role="asset",
+                label="script reference image",
+                provider_use="reference_input",
+                media_kind="image",
+                source_field="reference_image",
+            )
+        )
+    if item.source_asset_path:
+        raw_references.append(
+            SceneReferenceAsset(
+                path=item.source_asset_path,
+                role="motion_reference" if item.media_kind == "video" else "asset",
+                label=item.source_asset_type or "selected asset",
+                provider_use="prompt_and_frame",
+                media_kind=item.media_kind,
+                source_field="selected_asset",
+            )
+        )
+
+    limit = max(run_parameters.generation.reference_asset_limit, 1)
+    prepared: list[PreparedReference] = []
+    for reference in raw_references:
+        if len(prepared) >= limit:
+            break
+        prepared_reference = _prepare_single_reference(
+            reference=reference,
+            item=item,
+            run_parameters=run_parameters,
+            settings=settings,
+            output_dir=output_dir,
+            size=size,
+            provider_name=provider_name,
+            reference_index=len(prepared) + 1,
+        )
+        if prepared_reference is None:
             continue
-        path = Path(candidate).expanduser().resolve()
-        if not path.exists():
-            continue
-        if path.suffix.lower() in VIDEO_EXTENSIONS:
-            extracted_path = output_dir / f"shot_{item.index:03d}_reference.png"
-            return _extract_video_frame(path, extracted_path, item.clip_start_s or 0.0)
-        return path
-    return None
+        prepared.append(prepared_reference)
+    return prepared
 
 
-def _prepare_video_reference(item: ShotPlanItem, output_dir: Path, seconds: int) -> Path | None:
-    source_path = item.source_asset_path or item.reference_image
-    if not source_path:
-        return None
+def _prepare_single_reference(
+    reference: SceneReferenceAsset,
+    item: ShotPlanItem,
+    run_parameters: RunParameters,
+    settings: Settings,
+    output_dir: Path,
+    size: str | None,
+    provider_name: str,
+    reference_index: int,
+) -> PreparedReference | None:
+    if reference.path.startswith(("http://", "https://")):
+        return PreparedReference(
+            path=reference.path,
+            role=reference.role,
+            label=reference.label or f"reference {reference_index}",
+            prompt_hint=reference.prompt_hint,
+            provider_use=reference.provider_use,
+            media_kind=reference.media_kind,
+            url=reference.path,
+            mime_type=None,
+        )
 
-    path = Path(source_path).expanduser().resolve()
+    path = Path(reference.path).expanduser().resolve()
     if not path.exists():
         return None
-    if path.suffix.lower() not in VIDEO_EXTENSIONS:
-        return path
 
-    clip_path = output_dir / f"shot_{item.index:03d}_reference.mp4"
-    clip_duration = min(item.clip_duration_s or item.duration_s, float(seconds))
-    clip_duration = max(clip_duration, 1.0)
-    start_s = max(item.clip_start_s or 0.0, 0.0)
-    command = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-ss",
-        str(start_s),
-        "-i",
-        str(path),
-        "-t",
-        str(clip_duration),
-        "-an",
-        "-c:v",
-        "libx264",
-        "-pix_fmt",
-        "yuv420p",
-        str(clip_path),
-    ]
-    process = subprocess.run(command, capture_output=True, check=False)
-    if process.returncode != 0 or not clip_path.exists():
-        return path
-    return clip_path
+    media_kind = reference.media_kind or _media_kind_for_path(path)
+    prepared_path = path
+    mime_type = _mime_type_for_path(path)
+
+    if media_kind == "video" and provider_name in {"openai_video", "google_veo"}:
+        prepared_path = _extract_reference_frame(
+            path=path,
+            output_dir=output_dir,
+            shot_index=item.index,
+            reference_index=reference_index,
+            clip_start_s=item.clip_start_s or 0.0,
+        )
+        media_kind = "image"
+        mime_type = "image/png"
+
+    if media_kind == "image" and provider_name == "openai_video" and size:
+        prepared_path = _resize_image_reference(
+            path=prepared_path,
+            output_dir=output_dir,
+            shot_index=item.index,
+            reference_index=reference_index,
+            size=size,
+        )
+        mime_type = "image/png"
+
+    return PreparedReference(
+        path=str(prepared_path),
+        role=reference.role,
+        label=reference.label or prepared_path.stem,
+        prompt_hint=reference.prompt_hint,
+        provider_use=reference.provider_use,
+        media_kind=media_kind,
+        url=_public_url_for_path(prepared_path, run_parameters, settings),
+        mime_type=mime_type,
+    )
 
 
-def _extract_video_frame(source_path: Path, output_path: Path, timestamp_s: float) -> Path | None:
-    capture = cv2.VideoCapture(str(source_path))
+def _extract_reference_frame(
+    path: Path,
+    output_dir: Path,
+    shot_index: int,
+    reference_index: int,
+    clip_start_s: float,
+) -> Path:
+    output_path = output_dir / f"shot_{shot_index:03d}_reference_{reference_index:02d}.png"
+    capture = cv2.VideoCapture(str(path))
     if not capture.isOpened():
-        return None
+        return path
     fps = capture.get(cv2.CAP_PROP_FPS) or 24.0
-    frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    frame_index = min(int(round(max(timestamp_s, 0.0) * fps)), max(frame_count - 1, 0))
-    capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+    capture.set(cv2.CAP_PROP_POS_FRAMES, max(int(clip_start_s * fps), 0))
     success, frame = capture.read()
     capture.release()
     if not success or frame is None:
-        return None
+        return path
     cv2.imwrite(str(output_path), frame)
     return output_path
 
 
-def _derive_image_size(style_profile: StyleProfile) -> str:
-    width = style_profile.target_width
-    height = style_profile.target_height
-    if height > width:
-        return "1024x1536"
-    if width > height:
-        return "1536x1024"
-    return "1024x1024"
+def _resize_image_reference(
+    path: Path,
+    output_dir: Path,
+    shot_index: int,
+    reference_index: int,
+    size: str,
+) -> Path:
+    dimensions = _parse_size(size)
+    if dimensions is None:
+        return path
+    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if image is None:
+        return path
+    width, height = dimensions
+    resized = cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
+    output_path = output_dir / f"shot_{shot_index:03d}_reference_{reference_index:02d}_sized.png"
+    cv2.imwrite(str(output_path), resized)
+    return output_path
 
 
-def _derive_video_size(style_profile: StyleProfile) -> str:
+def _public_url_for_path(path: Path, run_parameters: RunParameters, settings: Settings) -> str | None:
+    base_url = run_parameters.generation.public_asset_base_url
+    if not base_url:
+        return None
+    try:
+        relative = path.resolve().relative_to(run_parameters.input_root(settings).resolve())
+    except ValueError:
+        return None
+    encoded = "/".join(urllib.parse.quote(part) for part in relative.parts)
+    return f"{base_url.rstrip('/')}/{encoded}"
+
+
+def _derive_video_size(
+    style_profile: StyleProfile,
+    run_parameters: RunParameters,
+    model_selection: VideoModelSelection,
+) -> str | None:
+    if model_selection.provider == "google_veo":
+        return None
+    if run_parameters.generation.video_size:
+        return run_parameters.generation.video_size
+    if model_selection.default_size:
+        return model_selection.default_size
     width = style_profile.target_width
     height = style_profile.target_height
     if height > width:
@@ -332,9 +361,84 @@ def _derive_video_size(style_profile: StyleProfile) -> str:
     return "1280x720"
 
 
-def _derive_video_seconds(duration_s: float) -> int:
-    if duration_s <= 4.0:
-        return 4
-    if duration_s <= 8.0:
-        return 8
-    return 12
+def _derive_aspect_ratio(
+    style_profile: StyleProfile,
+    run_parameters: RunParameters,
+    model_selection: VideoModelSelection,
+    size: str | None,
+) -> str | None:
+    if run_parameters.generation.video_aspect_ratio:
+        return run_parameters.generation.video_aspect_ratio
+    if model_selection.default_aspect_ratio:
+        return model_selection.default_aspect_ratio
+    dimensions = _parse_size(size) if size else None
+    if dimensions:
+        width, height = dimensions
+        return "9:16" if height > width else "16:9"
+    return "9:16" if style_profile.target_height > style_profile.target_width else "16:9"
+
+
+def _derive_resolution(
+    run_parameters: RunParameters,
+    model_selection: VideoModelSelection,
+) -> str | None:
+    if model_selection.provider != "google_veo":
+        return None
+    return run_parameters.generation.video_resolution or model_selection.default_resolution or "720p"
+
+
+def _derive_video_seconds(
+    duration_s: float,
+    model_selection: VideoModelSelection,
+    run_parameters: RunParameters,
+) -> int:
+    requested = (
+        run_parameters.generation.video_duration_seconds
+        or model_selection.default_duration_seconds
+        or int(round(duration_s))
+    )
+    requested = max(int(requested), 1)
+    if model_selection.provider == "google_veo":
+        return _closest_supported_duration(requested, [4, 6, 8])
+    if model_selection.provider == "kling":
+        return _closest_supported_duration(requested, [5, 10])
+    return _closest_supported_duration(requested, [4, 8, 12, 16, 20])
+
+
+def _closest_supported_duration(requested: int, supported: list[int]) -> int:
+    for value in supported:
+        if requested <= value:
+            return value
+    return supported[-1]
+
+
+def _parse_size(size: str | None) -> tuple[int, int] | None:
+    if not size or "x" not in size:
+        return None
+    width_text, height_text = size.lower().split("x", 1)
+    try:
+        return int(width_text), int(height_text)
+    except ValueError:
+        return None
+
+
+def _media_kind_for_path(path: Path) -> str | None:
+    suffix = path.suffix.lower()
+    if suffix in IMAGE_EXTENSIONS:
+        return "image"
+    if suffix in VIDEO_EXTENSIONS:
+        return "video"
+    return None
+
+
+def _mime_type_for_path(path: Path) -> str | None:
+    suffix = path.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".png":
+        return "image/png"
+    if suffix == ".webp":
+        return "image/webp"
+    if suffix in VIDEO_EXTENSIONS:
+        return "video/mp4" if suffix == ".mp4" else f"video/{suffix.lstrip('.')}"
+    return None

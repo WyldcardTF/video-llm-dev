@@ -208,5 +208,6 @@ __marimo__/
 
 # Video files (too big for GitHub)
 artifacts/
-Video Input/
+# Keep project scripts and README files under Input/, but ignore bulky media bundles.
+Supporting Data/
 Video Output/

@@ -5,7 +5,28 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .models import ScriptDocument, ScriptScene
+from .models import SceneReferenceAsset, ScriptDocument, ScriptScene
+
+
+IMAGE_EXTENSIONS = {
+    ".bmp",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
+VIDEO_EXTENSIONS = {
+    ".avi",
+    ".m4v",
+    ".mkv",
+    ".mov",
+    ".mp4",
+    ".mpeg",
+    ".mpg",
+    ".webm",
+}
 
 
 def load_script_file(path: Path) -> ScriptDocument:
@@ -123,6 +144,7 @@ def _scene_from_mapping(scene_name: str, scene_payload: Any, path: Path) -> Scri
     text_overlay = _first_text(normalized, "text_overlay", "overlay_text", "caption", "text")
     transition = _first_text(normalized, "transition")
     reference_image = _first_text(normalized, "reference_image", "image", "frame")
+    reference_assets = _normalize_reference_assets(scene_payload, normalized, path)
 
     consumed_keys = {
         "description",
@@ -143,6 +165,12 @@ def _scene_from_mapping(scene_name: str, scene_payload: Any, path: Path) -> Scri
         "text",
         "transition",
         "reference_image",
+        "reference_images",
+        "reference_assets",
+        "supporting_assets",
+        "supporting_data",
+        "general_assets_images",
+        "general_assets_video",
         "image",
         "frame",
         "name",
@@ -171,8 +199,206 @@ def _scene_from_mapping(scene_name: str, scene_payload: Any, path: Path) -> Scri
         text_overlay=text_overlay,
         transition=transition,
         reference_image=reference_image,
+        reference_assets=reference_assets,
         metadata=metadata,
     )
+
+
+def _normalize_reference_assets(
+    scene_payload: dict[str, Any],
+    normalized: dict[str, Any],
+    path: Path,
+) -> list[SceneReferenceAsset]:
+    references: list[SceneReferenceAsset] = []
+
+    for source_field in ("reference_assets", "supporting_assets", "supporting_data"):
+        value = normalized.get(source_field)
+        references.extend(_references_from_value(value, path, source_field=source_field))
+
+    references.extend(
+        _references_from_value(
+            normalized.get("reference_images"),
+            path,
+            source_field="reference_images",
+            default_role="asset",
+            default_provider_use="reference_input",
+        )
+    )
+    references.extend(
+        _references_from_value(
+            normalized.get("general_assets_images"),
+            path,
+            source_field="general_assets_images",
+            default_role="asset",
+            default_provider_use="reference_input",
+            search_base=("general_assets", "images"),
+        )
+    )
+    references.extend(
+        _references_from_value(
+            normalized.get("general_assets_video"),
+            path,
+            source_field="general_assets_video",
+            default_role="motion_reference",
+            default_provider_use="prompt_and_frame",
+            search_base=("general_assets", "video"),
+        )
+    )
+
+    seen: set[str] = set()
+    unique_references: list[SceneReferenceAsset] = []
+    for reference in references:
+        identity = reference.path
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique_references.append(reference)
+    return unique_references
+
+
+def _references_from_value(
+    value: Any,
+    script_path: Path,
+    source_field: str,
+    default_role: str = "asset",
+    default_provider_use: str = "auto",
+    search_base: tuple[str, ...] = (),
+) -> list[SceneReferenceAsset]:
+    if value in (None, ""):
+        return []
+
+    if isinstance(value, (str, Path)):
+        items: list[Any] = [value]
+    elif isinstance(value, list):
+        items = value
+    else:
+        items = [value]
+
+    references: list[SceneReferenceAsset] = []
+    for item in items:
+        if item in (None, ""):
+            continue
+
+        if isinstance(item, dict):
+            raw_path = (
+                item.get("path")
+                or item.get("file")
+                or item.get("asset")
+                or item.get("image")
+                or item.get("video")
+                or item.get("url")
+            )
+            if not raw_path:
+                continue
+            role = str(item.get("role") or item.get("type") or default_role).strip() or default_role
+            label = str(item.get("label") or item.get("name") or "").strip()
+            prompt_hint = str(
+                item.get("prompt_hint")
+                or item.get("description")
+                or item.get("notes")
+                or ""
+            ).strip()
+            provider_use = str(
+                item.get("provider_use")
+                or item.get("use")
+                or default_provider_use
+            ).strip() or default_provider_use
+        else:
+            raw_path = str(item)
+            role = default_role
+            label = Path(str(item)).stem
+            prompt_hint = ""
+            provider_use = default_provider_use
+
+        if _is_url(str(raw_path)):
+            references.append(
+                SceneReferenceAsset(
+                    path=str(raw_path),
+                    role=role,
+                    label=label or Path(str(raw_path)).stem,
+                    prompt_hint=prompt_hint,
+                    provider_use=provider_use,
+                    media_kind=_media_kind_for_name(str(raw_path)),
+                    source_field=source_field,
+                )
+            )
+            continue
+
+        for resolved_path in _expand_reference_path(str(raw_path), script_path, search_base):
+            references.append(
+                SceneReferenceAsset(
+                    path=str(resolved_path),
+                    role=role,
+                    label=label or resolved_path.stem,
+                    prompt_hint=prompt_hint,
+                    provider_use=provider_use,
+                    media_kind=_media_kind_for_path(resolved_path),
+                    source_field=source_field,
+                )
+            )
+    return references
+
+
+def _expand_reference_path(
+    raw_path: str,
+    script_path: Path,
+    search_base: tuple[str, ...],
+) -> list[Path]:
+    resolved = _resolve_reference_path(raw_path, script_path, search_base)
+    if resolved.exists() and resolved.is_dir():
+        allowed = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
+        return sorted(
+            file_path.resolve()
+            for file_path in resolved.rglob("*")
+            if file_path.is_file() and file_path.suffix.lower() in allowed
+        )
+    return [resolved.resolve()]
+
+
+def _resolve_reference_path(
+    raw_path: str,
+    script_path: Path,
+    search_base: tuple[str, ...],
+) -> Path:
+    candidate = Path(raw_path).expanduser()
+    if candidate.is_absolute():
+        return candidate
+
+    project_root = script_path.parent.parent if script_path.parent.name.lower() == "scripts" else script_path.parent
+    supporting_root = project_root / "Supporting Data"
+    candidates = [
+        script_path.parent / candidate,
+        project_root / candidate,
+        supporting_root / candidate,
+    ]
+    if search_base:
+        candidates.append(supporting_root.joinpath(*search_base) / candidate)
+
+    for candidate_path in candidates:
+        if candidate_path.exists():
+            return candidate_path
+    return candidates[-1]
+
+
+def _media_kind_for_path(path: Path) -> str | None:
+    return _media_kind_for_name(str(path))
+
+
+def _media_kind_for_name(value: str) -> str | None:
+    suffix = Path(value).suffix.lower()
+    if "?" in suffix:
+        suffix = suffix.split("?", 1)[0]
+    if "#" in suffix:
+        suffix = suffix.split("#", 1)[0]
+    if suffix in IMAGE_EXTENSIONS:
+        return "image"
+    if suffix in VIDEO_EXTENSIONS:
+        return "video"
+    return None
+
+
+def _is_url(value: str) -> bool:
+    return bool(re.match(r"^https?://", value, flags=re.IGNORECASE))
 
 
 def _split_text_script(text: str) -> list[str]:

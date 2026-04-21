@@ -10,7 +10,6 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .ingest import VIDEO_EXTENSIONS
 from .models import GenerationPlan, ShotPlanItem, StyleProfile
 
 
@@ -99,23 +98,18 @@ def _iter_rendered_shot_frames(
 ) -> Iterator[np.ndarray]:
     total_frames = max(int(round(item.duration_s * fps)), 1)
 
-    if item.media_kind == "video" and item.source_asset_path:
-        yield from _iter_video_frames(
-            item=item,
-            style_profile=style_profile,
-            frame_size=frame_size,
-            fps=fps,
-            total_frames=total_frames,
+    if item.media_kind != "video" or not item.source_asset_path:
+        raise ValueError(
+            f"Shot {item.index} has no generated video asset. Run a full video generation backend first."
         )
-        return
 
-    background = _load_background(item, style_profile, frame_size)
-    for frame_index in range(total_frames):
-        progress = frame_index / max(total_frames - 1, 1)
-        animated = _apply_still_motion(background, progress, item.index)
-        graded = _apply_grade(animated, style_profile)
-        composited = _draw_overlay(graded, item, style_profile)
-        yield composited
+    yield from _iter_video_frames(
+        item=item,
+        style_profile=style_profile,
+        frame_size=frame_size,
+        fps=fps,
+        total_frames=total_frames,
+    )
 
 
 def _iter_video_frames(
@@ -128,13 +122,7 @@ def _iter_video_frames(
     video_path = Path(item.source_asset_path).expanduser().resolve()
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
-        fallback = _load_background(item, style_profile, frame_size)
-        for frame_index in range(total_frames):
-            progress = frame_index / max(total_frames - 1, 1)
-            animated = _apply_still_motion(fallback, progress, item.index)
-            graded = _apply_grade(animated, style_profile)
-            yield _draw_overlay(graded, item, style_profile)
-        return
+        raise RuntimeError(f"Could not open generated video asset for shot {item.index}: {video_path}")
 
     source_fps = capture.get(cv2.CAP_PROP_FPS) or float(fps)
     source_frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
@@ -162,55 +150,13 @@ def _iter_video_frames(
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             last_good_frame = _cover_resize(rgb_frame, frame_size[0], frame_size[1])
         elif last_good_frame is None:
-            last_good_frame = _load_background(item, style_profile, frame_size)
+            raise RuntimeError(f"Generated video asset for shot {item.index} did not return readable frames.")
 
         animated = _apply_video_motion(last_good_frame, progress, item.index)
         graded = _apply_grade(animated, style_profile)
         yield _draw_overlay(graded, item, style_profile)
 
     capture.release()
-
-
-def _load_background(item: ShotPlanItem, style_profile: StyleProfile, frame_size: tuple[int, int]) -> np.ndarray:
-    width, height = frame_size
-
-    candidate_paths = [
-        item.source_asset_path,
-        item.reference_image,
-    ]
-    for candidate_path in candidate_paths:
-        if not candidate_path:
-            continue
-        path = Path(candidate_path).expanduser().resolve()
-        suffix = path.suffix.lower()
-        if suffix in VIDEO_EXTENSIONS:
-            frame = _load_video_cover_frame(path)
-            if frame is not None:
-                return _cover_resize(frame, width, height)
-            continue
-
-        source = cv2.imread(str(path))
-        if source is not None:
-            rgb_source = cv2.cvtColor(source, cv2.COLOR_BGR2RGB)
-            return _cover_resize(rgb_source, width, height)
-
-    fallback_color = _hex_to_rgb(style_profile.color_palette[0] if style_profile.color_palette else "#404040")
-    return np.full((height, width, 3), fallback_color, dtype=np.uint8)
-
-
-def _load_video_cover_frame(path: Path) -> np.ndarray | None:
-    capture = cv2.VideoCapture(str(path))
-    if not capture.isOpened():
-        return None
-
-    frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    midpoint = max(frame_count // 2, 0)
-    capture.set(cv2.CAP_PROP_POS_FRAMES, midpoint)
-    success, frame = capture.read()
-    capture.release()
-    if not success or frame is None:
-        return None
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
 
 def _cover_resize(image: np.ndarray, width: int, height: int) -> np.ndarray:
@@ -221,20 +167,6 @@ def _cover_resize(image: np.ndarray, width: int, height: int) -> np.ndarray:
     offset_x = max((resized.shape[1] - width) // 2, 0)
     offset_y = max((resized.shape[0] - height) // 2, 0)
     return resized[offset_y:offset_y + height, offset_x:offset_x + width]
-
-
-def _apply_still_motion(image: np.ndarray, progress: float, shot_index: int) -> np.ndarray:
-    height, width = image.shape[:2]
-    zoom = 1.04 + (0.05 * progress)
-    enlarged = cv2.resize(image, (int(width * zoom), int(height * zoom)))
-
-    x_span = max(enlarged.shape[1] - width, 0)
-    y_span = max(enlarged.shape[0] - height, 0)
-    x_direction = progress if shot_index % 2 == 0 else 1.0 - progress
-    offset_x = int(x_span * x_direction)
-    offset_y = int(y_span * 0.35 * progress)
-
-    return enlarged[offset_y:offset_y + height, offset_x:offset_x + width]
 
 
 def _apply_video_motion(image: np.ndarray, progress: float, shot_index: int) -> np.ndarray:

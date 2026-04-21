@@ -55,6 +55,11 @@ class Settings:
     continuity_profile_filename: str
     resolved_run_config_filename: str
     openai_api_key: str | None
+    google_vertex_project: str | None
+    google_vertex_location: str
+    google_vertex_access_token: str | None
+    kling_api_key: str | None
+    kling_base_url: str
 
     def analyses_path(self, project_dir: Path) -> Path:
         return project_dir / self.video_analyses_filename
@@ -86,8 +91,8 @@ def get_settings() -> Settings:
     _load_environment()
 
     app_base_dir = _as_path(_env_text("APP_BASE_DIR", "/app") or "/app", Path.cwd())
-    scripts_dir = _env_path("SCRIPTS_DIR", "Scripts", app_base_dir)
-    video_input_dir = _env_path("VIDEO_INPUT_DIR", "Video Input", app_base_dir)
+    scripts_dir = _env_path("SCRIPTS_DIR", "Input", app_base_dir)
+    video_input_dir = _env_path("VIDEO_INPUT_DIR", "Input", app_base_dir)
     video_output_dir = _env_path("VIDEO_OUTPUT_DIR", "Video Output", app_base_dir)
     pipeline_artifacts_dir = _env_path(
         "PIPELINE_ARTIFACTS_DIR",
@@ -122,4 +127,9 @@ def get_settings() -> Settings:
         resolved_run_config_filename=_env_text("RESOLVED_RUN_CONFIG_FILENAME", "resolved_run_config.json")
         or "resolved_run_config.json",
         openai_api_key=_env_text("OPENAI_API_KEY"),
+        google_vertex_project=_env_text("GOOGLE_VERTEX_PROJECT"),
+        google_vertex_location=_env_text("GOOGLE_VERTEX_LOCATION", "us-central1") or "us-central1",
+        google_vertex_access_token=_env_text("GOOGLE_VERTEX_ACCESS_TOKEN"),
+        kling_api_key=_env_text("KLING_API_KEY"),
+        kling_base_url=_env_text("KLING_BASE_URL", "https://api.klingapi.com") or "https://api.klingapi.com",
     )
