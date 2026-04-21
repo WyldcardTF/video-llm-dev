@@ -1,4 +1,4 @@
-run_name: sample1
+run_name: script1
 description: >
   Prototype run for the Blonde Blazer Romance project. This run reads the project
   from /app/Input, prepares reusable style artifacts from scene images plus any
@@ -9,21 +9,21 @@ description: >
 input_folder: Blonde Blazer Romance
 
 # Relative script paths are resolved inside the selected project first.
-# This points to /app/Input/Blonde Blazer Romance/Scripts/sample1.json.
-script_file: Scripts/sample1.json
+# This points to /app/Input/Blonde Blazer Romance/Scripts/script1.json.
+script_file: Scripts/script1.json
 
 # Output files are resolved relative to VIDEO_OUTPUT_DIR unless absolute.
-output_file: sample1_draft.mp4
+output_file: script1_draft.mp4
 
 # Artifacts are resolved inside PIPELINE_ARTIFACTS_DIR.
-artifact_subdir: sample1
+artifact_subdir: script1
 
 # Optional. If relative, this resolves inside the selected project folder.
 voiceover_file:
 
-# Optional priority video pools for future video-aware training. For now, videos
-# are not required. Kling multi-image generation is driven by scene image
-# references in the script.
+# Optional priority video pools for style analysis and future video-aware
+# generation. Videos are never required; script assets decide what is used for
+# each scene through use_asset and asset_type.
 analysis_video_subfolders:
   - Supporting Data/general_assets/video
   - Supporting Data/closeups/videos
@@ -31,8 +31,12 @@ analysis_video_subfolders:
   - Supporting Data/testimonials/videos
 
 # Asset pools are relative to /app/Input/<input_folder>.
-# The current pipeline inventories images and videos from these folders. Scripts
-# can also point directly at files/folders under Supporting Data via reference_assets.
+# The pipeline inventories images from these folders and analyzes active script
+# video references when use_asset is true.
+# Scripts decide generation references with:
+#   use_asset: true/false
+#   asset_type: image/video
+#   role, label, prompt_hint, provider_use
 asset_subfolders:
   reference_videos: Supporting Data/general_assets/video
   general_asset_videos: Supporting Data/general_assets/video
@@ -151,22 +155,14 @@ models:
   voice_generation_model:
 
 selection:
-  # Active input-mode switches. The matching CLI flags are:
-  #   python -m pipeline train --use-input-images --no-use-input-videos
-  #   python -m pipeline train --use-input-images --use-input-videos
-  # For current Kling multi-image tests, use images and skip videos.
-  use_input_images: true
-  use_input_videos: false
+  # Priority video pools kept for future/source-override analysis workflows.
+  # Generation reference usage is controlled inside the script JSON, not here.
   preferred_reference_types:
     - reference_videos
     - general_asset_videos
     - general_asset_images
     - closeup_videos
     - broll_videos
-  # false means image-only projects are valid. Set true later if you want to
-  # require a video reference pool again.
-  require_videos: false
-  allow_images_as_fallback: false
   max_reference_videos:
 
 workflow:

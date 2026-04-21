@@ -13,7 +13,18 @@
     "editing_rhythm": "medium-fast",
     "camera_language": "close-up heavy with elegant motion",
     "music_direction": "modern romantic pop",
-    "reference_policy": "Use scene reference assets as semantic guidance. The role and prompt_hint fields explain what each image/video means."
+    "reference_policy": "Use general_reference_assets as global context for the whole film and scene reference_assets only for their matching scene. use_asset controls whether an asset is active. asset_type tells the pipeline whether the file should be treated as image or video.",
+    "general_reference_assets": [
+      {
+        "path": "Supporting Data/general_assets/video/general/Dispatch all Blonde Blazer Romance Scenes.mp4",
+        "use_asset": true,
+        "asset_type": "video",
+        "role": "motion_reference",
+        "label": "primary romance promo motion reference",
+        "prompt_hint": "Use this as global context for pacing, elegant movement, color treatment, and fashion-promo rhythm.",
+        "provider_use": "prompt_and_frame"
+      }
+    ]
   },
   "scenes": [
     {
@@ -29,11 +40,12 @@
       "transition": "crossfade",
       "subject": "lead_talent",
       "wardrobe": "blonde blazer",
-      "preferred_asset_types": ["general_asset_videos", "general_asset_images", "closeup_videos", "closeup_images"],
-      "notes": "Use the face and wardrobe references for identity and styling; use the video as motion/style guidance.",
+      "notes": "Use the face and wardrobe references for identity and styling. Global references under global_style inform the whole video.",
       "reference_assets": [
         {
           "path": "Supporting Data/general_assets/images/Scene 1/1.png",
+          "use_asset": true,
+          "asset_type": "image",
           "role": "character",
           "label": "lead talent face reference",
           "prompt_hint": "Preserve the lead talent's facial proportions, blonde styling, camera-facing expression, and premium beauty-ad framing.",
@@ -41,6 +53,8 @@
         },
         {
           "path": "Supporting Data/general_assets/images/Scene 1/2.png",
+          "use_asset": true,
+          "asset_type": "image",
           "role": "wardrobe",
           "label": "blonde blazer wardrobe reference",
           "prompt_hint": "Use this for blazer color, fit, neckline, and luxury fashion styling.",
@@ -48,17 +62,12 @@
         },
         {
           "path": "Supporting Data/general_assets/images/Scene 1/3.png",
+          "use_asset": true,
+          "asset_type": "image",
           "role": "composition",
           "label": "close-up composition reference",
           "prompt_hint": "Use this for crop, lens feel, eye contact, and soft editorial lighting.",
           "provider_use": "prompt_and_reference"
-        },
-        {
-          "path": "Supporting Data/general_assets/video/Dispatch all Blonde Blazer Romance Scenes.mp4",
-          "role": "motion_reference",
-          "label": "primary romance promo motion reference",
-          "prompt_hint": "Use this video for pacing, elegant movement, color treatment, and fashion-promo rhythm.",
-          "provider_use": "prompt_and_frame"
         }
       ]
     }

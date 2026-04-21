@@ -81,8 +81,9 @@ def _build_image_first_style_profile(asset_inventory: AssetInventory | None) -> 
     ]
     if not image_items:
         raise ValueError(
-            "No video analyses or image assets were found. Add at least two scene images "
-            "under the selected Input project, or add optional videos for style analysis."
+            "No active video analyses or image assets were found. Add active image references "
+            "to the script with use_asset: true and asset_type: image, or add an active "
+            "asset_type: video reference for style analysis."
         )
 
     resolution_counts = Counter(

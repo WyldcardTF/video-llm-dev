@@ -50,15 +50,8 @@ def build_asset_inventory(
             )
         )
 
-    if not run_parameters.selection.use_input_images:
-        summary = Counter(f"{item.asset_type}:{item.media_kind}" for item in items)
-        return AssetInventory(
-            items=items,
-            summary=dict(sorted(summary.items())),
-        )
-
-    for asset_type, relative_path in asset_paths:
-        asset_root = (root / relative_path).resolve()
+    image_roots = _image_roots(root, asset_paths)
+    for asset_type, asset_root in image_roots:
         if not asset_root.exists():
             continue
 
@@ -133,6 +126,23 @@ def _sorted_asset_paths(run_parameters: RunParameters) -> list[tuple[str, Path]]
         ),
         key=lambda item: (-len(item[1].parts), item[0]),
     )
+
+
+def _image_roots(input_root: Path, asset_paths: list[tuple[str, Path]]) -> list[tuple[str, Path]]:
+    roots: list[tuple[str, Path]] = []
+    seen: set[Path] = set()
+    for asset_type, relative_path in asset_paths:
+        asset_root = (input_root / relative_path).resolve()
+        if asset_root not in seen:
+            roots.append((asset_type, asset_root))
+            seen.add(asset_root)
+
+    supporting_root = input_root / "Supporting Data"
+    if supporting_root.exists():
+        resolved_supporting_root = supporting_root.resolve()
+        if resolved_supporting_root not in seen:
+            roots.append(("supporting_data", resolved_supporting_root))
+    return roots
 
 
 def _match_asset_type(

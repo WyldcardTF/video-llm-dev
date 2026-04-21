@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 
 import typer
@@ -11,7 +11,6 @@ from .config import get_settings
 from .generation import generate_assets_for_plan, resolve_generation_backend
 from .ingest import (
     discover_optional_video_files_from_sources,
-    discover_video_files,
     merge_unique_video_paths,
 )
 from .io_utils import ensure_dir, write_json
@@ -19,7 +18,7 @@ from .planning import build_continuity_profile, plan_from_script
 from .render import render_plan
 from .run_config import RunParameters, load_run_parameters
 from .script_io import load_script_file
-from .models import AssetInventory, ContinuityProfile, StyleProfile, VideoAnalysis
+from .models import AssetInventory, ContinuityProfile, ScriptDocument, StyleProfile, VideoAnalysis
 from .style import build_style_profile, load_style_profile
 from .video_models import list_video_model_presets, resolve_video_model_selection
 
@@ -69,40 +68,21 @@ def _resolve_project_dir(run_parameters: RunParameters, project_dir_override: Pa
     return settings.pipeline_artifacts_dir / candidate
 
 
-def _resolve_video_paths(run_parameters: RunParameters, source_override: Path | None) -> list[Path]:
-    if not run_parameters.selection.use_input_videos:
-        return []
-
+def _resolve_video_paths(
+    run_parameters: RunParameters,
+    source_override: Path | None,
+    script_document: ScriptDocument | None,
+) -> list[Path]:
+    script_video_paths = _script_reference_paths(script_document, media_kind="video")
     if source_override is not None:
-        return discover_optional_video_files_from_sources([source_override])
+        override_paths = discover_optional_video_files_from_sources([source_override])
+        return merge_unique_video_paths(script_video_paths, override_paths)
 
     bundle_root = run_parameters.bundle_scan_root(settings)
     if not bundle_root.exists():
         raise FileNotFoundError(f"Selected input_folder does not exist: {bundle_root}")
 
-    required_videos: list[Path] = []
-    if run_parameters.selection.require_videos:
-        required_source = run_parameters.required_reference_video_source(settings)
-        try:
-            required_videos = discover_video_files(required_source)
-        except (FileNotFoundError, ValueError) as exc:
-            raise FileNotFoundError(
-                f"The selected input bundle must contain at least one supported video in: {required_source}"
-            ) from exc
-
-    prioritized_supporting_videos = discover_optional_video_files_from_sources(
-        run_parameters.analysis_sources(settings)
-    )
-    try:
-        bundle_videos = discover_video_files(bundle_root)
-    except FileNotFoundError:
-        bundle_videos = []
-
-    video_paths = merge_unique_video_paths(
-        required_videos,
-        prioritized_supporting_videos,
-        bundle_videos,
-    )
+    video_paths = merge_unique_video_paths(script_video_paths)
 
     if run_parameters.selection.max_reference_videos:
         video_paths = video_paths[: run_parameters.selection.max_reference_videos]
@@ -121,42 +101,59 @@ def _build_analyzer(run_parameters: RunParameters) -> VideoAnalyzer:
     )
 
 
-def _apply_input_mode_overrides(
-    run_parameters: RunParameters,
-    use_input_images: bool | None,
-    use_input_videos: bool | None,
-) -> RunParameters:
-    if use_input_images is None and use_input_videos is None:
-        return run_parameters
-
-    selection = run_parameters.selection
-    if use_input_images is not None:
-        selection = replace(selection, use_input_images=use_input_images)
-    if use_input_videos is not None:
-        selection = replace(
-            selection,
-            use_input_videos=use_input_videos,
-            require_videos=selection.require_videos and use_input_videos,
-        )
-    return replace(run_parameters, selection=selection)
-
-
 def _train_artifacts(
     run_parameters: RunParameters,
     source_override: Path | None,
     resolved_project_dir: Path,
 ) -> tuple[list[Path], list[VideoAnalysis], StyleProfile, AssetInventory]:
-    video_paths = _resolve_video_paths(run_parameters, source_override)
+    script_document = load_script_file(run_parameters.script_path(settings))
+    video_paths = _resolve_video_paths(run_parameters, source_override, script_document)
     analyzer = _build_analyzer(run_parameters)
     analyses = analyzer.analyze_many(video_paths, resolved_project_dir) if video_paths else []
     asset_inventory = build_asset_inventory(run_parameters, settings, analyses)
-    style_profile = build_style_profile(analyses, asset_inventory)
+    style_profile = build_style_profile(analyses, _style_inventory_for_script(asset_inventory, script_document))
 
     _save_resolved_run_config(run_parameters, resolved_project_dir)
     write_json(settings.analyses_path(resolved_project_dir), analyses)
     write_json(settings.style_profile_path(resolved_project_dir), style_profile)
     write_json(settings.asset_inventory_path(resolved_project_dir), asset_inventory)
     return video_paths, analyses, style_profile, asset_inventory
+
+
+def _script_reference_paths(script_document: ScriptDocument | None, media_kind: str) -> list[Path]:
+    if script_document is None:
+        return []
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for scene in script_document.scenes:
+        for reference in scene.reference_assets:
+            if reference.media_kind != media_kind or reference.path.startswith(("http://", "https://")):
+                continue
+            path = Path(reference.path).expanduser().resolve()
+            if not path.exists() or path in seen:
+                continue
+            seen.add(path)
+            paths.append(path)
+    return paths
+
+
+def _style_inventory_for_script(
+    asset_inventory: AssetInventory,
+    script_document: ScriptDocument,
+) -> AssetInventory:
+    active_image_paths = {str(path) for path in _script_reference_paths(script_document, media_kind="image")}
+    if not active_image_paths:
+        return asset_inventory
+    active_items = [
+        item
+        for item in asset_inventory.items
+        if item.media_kind != "image" or item.path in active_image_paths
+    ]
+    summary: dict[str, int] = {}
+    for item in active_items:
+        key = f"{item.asset_type}:{item.media_kind}"
+        summary[key] = summary.get(key, 0) + 1
+    return AssetInventory(items=active_items, summary=dict(sorted(summary.items())))
 
 
 def _load_trained_style_profile(resolved_project_dir: Path) -> StyleProfile:
@@ -194,7 +191,6 @@ def _save_resolved_run_config(run_parameters: RunParameters, project_dir: Path) 
             "project_dir": str(project_dir),
             "input_root": str(run_parameters.input_root(settings)),
             "bundle_scan_root": str(run_parameters.bundle_scan_root(settings)),
-            "required_video_source": str(run_parameters.required_reference_video_source(settings)),
             "video_analyses_file": str(settings.analyses_path(project_dir)),
             "style_profile_file": str(settings.style_profile_path(project_dir)),
             "asset_inventory_file": str(settings.asset_inventory_path(project_dir)),
@@ -217,28 +213,14 @@ def train(
     ),
     source: Path | None = typer.Option(
         None,
-        help="Optional override for an extra video source path. Videos are optional for the current Kling image-to-video flow.",
+        help="Optional override for a video source path to analyze. Videos are optional support data.",
     ),
     project_dir: Path | None = typer.Option(
         None,
         help="Optional override for the artifact output directory. If omitted, the CLI uses artifact_subdir from the YAML run config.",
     ),
-    use_input_images: bool | None = typer.Option(
-        None,
-        "--use-input-images/--no-use-input-images",
-        help="Override whether train inventories image inputs. Defaults to selection.use_input_images in YAML.",
-    ),
-    use_input_videos: bool | None = typer.Option(
-        None,
-        "--use-input-videos/--no-use-input-videos",
-        help="Override whether train discovers/analyzes video inputs. Defaults to selection.use_input_videos in YAML.",
-    ),
 ) -> None:
-    run_parameters = _apply_input_mode_overrides(
-        load_run_parameters(run_config),
-        use_input_images,
-        use_input_videos,
-    )
+    run_parameters = load_run_parameters(run_config)
     resolved_project_dir = ensure_dir(_resolve_project_dir(run_parameters, project_dir))
     video_paths, _analyses, _style_profile, _asset_inventory = _train_artifacts(
         run_parameters,
@@ -246,14 +228,7 @@ def train(
         resolved_project_dir,
     )
 
-    if run_parameters.selection.use_input_images and run_parameters.selection.use_input_videos:
-        media_summary = f"image inputs plus {len(video_paths)} video(s)"
-    elif run_parameters.selection.use_input_images:
-        media_summary = "image inputs"
-    elif run_parameters.selection.use_input_videos:
-        media_summary = f"{len(video_paths)} video(s)"
-    else:
-        media_summary = "no enabled input media"
+    media_summary = f"image inputs plus {len(video_paths)} active video reference(s)"
     typer.echo(f"Prepared reusable style artifacts from {media_summary} for run '{run_parameters.run_name}'.")
     typer.echo(f"Training artifacts saved to {resolved_project_dir}")
     typer.echo(f"Style profile saved to {settings.style_profile_path(resolved_project_dir)}")

@@ -5,8 +5,8 @@ This is the practical command-line guide. For code-level internals, read [tutori
 ## What You Need
 
 1. A project folder under `/app/Input`.
-2. A script inside that project, usually `Scripts/sample1.json`.
-3. At least two scene images referenced from the script for Kling multi-image generation.
+2. A script inside that project, usually `Scripts/script1.json`.
+3. At least two active `asset_type: image` references for Kling multi-image generation.
 4. A provider key for whichever video model you select.
 
 The sample project is:
@@ -20,7 +20,7 @@ The sample project is:
 ```bash
 find "/app/Input/Blonde Blazer Romance" -maxdepth 4 -type d | sort
 find "/app/Input/Blonde Blazer Romance" -maxdepth 5 -type f | sort
-python -m json.tool "/app/Input/Blonde Blazer Romance/Scripts/sample1.json"
+python -m json.tool "/app/Input/Blonde Blazer Romance/Scripts/script1.json"
 ```
 
 The important folders are:
@@ -29,6 +29,12 @@ The important folders are:
 2. `Supporting Data/general_assets/video/` for optional future video references.
 3. `Supporting Data/general_assets/images/` for scene images.
 4. `Supporting Data/closeups`, `broll`, `portraits`, `product_shots`, `style_references`, `brand_assets`, `audio`, and `docs` for optional support.
+
+Folder naming convention:
+
+1. A final folder named `general` gives context to the whole video.
+2. A final folder named like `scene 1` gives context only to script scene `Scene 1`.
+3. Matching is case-insensitive, so `scene 1` and `Scene 1` both work.
 
 ## 2. Choose A Video Model
 
@@ -94,7 +100,7 @@ python -m pipeline show-run-config --run-config /app/run_parameters.yaml
 Check:
 
 1. `input_folder` is `Blonde Blazer Romance`.
-2. `script_file` resolves to `Input/Blonde Blazer Romance/Scripts/sample1.json`.
+2. `script_file` resolves to `Input/Blonde Blazer Romance/Scripts/script1.json`.
 3. `asset_subfolders.reference_videos` points to `Supporting Data/general_assets/video`.
 4. `models.video_generation_model` is the preset you want.
 5. `generation.video_aspect_ratio` is quoted as `"9:16"` in YAML.
@@ -106,6 +112,8 @@ Each scene can include `reference_assets`:
 ```json
 {
   "path": "Supporting Data/general_assets/images/Scene 1/1.png",
+  "use_asset": true,
+  "asset_type": "image",
   "role": "character",
   "label": "lead talent face reference",
   "prompt_hint": "Preserve the lead talent's facial proportions and premium beauty-ad framing.",
@@ -116,10 +124,16 @@ Each scene can include `reference_assets`:
 What the fields mean:
 
 1. `path` points to a local file/folder under the project or to an HTTP URL.
-2. `role` tells the prompt what the asset means, such as `character`, `wardrobe`, `composition`, `style`, or `motion_reference`.
-3. `label` is a human-readable name.
-4. `prompt_hint` is the most important semantic instruction.
-5. `provider_use` tells future code and humans whether the asset is intended as `reference_input`, `prompt_only`, `prompt_and_reference`, or `prompt_and_frame`.
+2. `use_asset` controls whether the listed asset is active without deleting it from the script.
+3. `asset_type` is currently `image` or `video`, and tells the code how to prepare it.
+4. `role` tells the prompt what the asset means, such as `character`, `wardrobe`, `composition`, `style`, or `motion_reference`.
+5. `label` is a human-readable name.
+6. `prompt_hint` is the most important semantic instruction.
+7. `provider_use` tells future code and humans whether the asset is intended as `reference_input`, `prompt_only`, `prompt_and_reference`, or `prompt_and_frame`.
+
+Whole-video context goes under `global_style.general_reference_assets`; scene-only context goes under that scene's `reference_assets`.
+
+If you want a pure image-first test, set `use_asset: false` on video references. If at least one active video reference exists, `train` analyzes it for style/motion artifacts.
 
 ## 6. Train
 
@@ -129,27 +143,20 @@ python -m pipeline train --run-config /app/run_parameters.yaml
 
 This command:
 
-1. inventories images/videos under `Supporting Data`
-2. optionally scans supporting videos if present
-3. samples frame, motion, brightness, palette, and audio characteristics only for videos that exist
-4. builds an image-first style profile when no videos exist
-5. writes reusable artifacts under `/app/artifacts/sample1`
+1. inventories images under `Supporting Data`
+2. analyzes active `asset_type: video` references from the script when `use_asset: true`
+3. samples frame, motion, brightness, palette, and audio characteristics for those active videos
+4. builds an image-first style profile when no active videos exist
+5. writes reusable artifacts under `/app/artifacts/script1`
 
-Input-mode flags:
-
-```bash
-python -m pipeline train --run-config /app/run_parameters.yaml --use-input-images --no-use-input-videos
-python -m pipeline train --run-config /app/run_parameters.yaml --use-input-images --use-input-videos
-```
-
-Use the first command for the current Kling image-to-video flow. Use the second later when you want videos analyzed as additional style/motion support.
+There are no image/video input-mode flags now. Training inventories images and analyzes only active video references from the script; generation usage is controlled in the script with `use_asset` and `asset_type`.
 
 Inspect:
 
 ```bash
-python -m json.tool /app/artifacts/sample1/resolved_run_config.json | sed -n '1,240p'
-python -m json.tool /app/artifacts/sample1/style_profile.json | sed -n '1,220p'
-python -m json.tool /app/artifacts/sample1/asset_inventory.json | sed -n '1,260p'
+python -m json.tool /app/artifacts/script1/resolved_run_config.json | sed -n '1,240p'
+python -m json.tool /app/artifacts/script1/style_profile.json | sed -n '1,220p'
+python -m json.tool /app/artifacts/script1/asset_inventory.json | sed -n '1,260p'
 ```
 
 ## 7. Generate
@@ -165,13 +172,13 @@ This command:
 3. builds continuity and shot-plan JSON
 4. prepares provider references
 5. calls the selected video-generation provider once per shot
-6. assembles generated clips into `/app/Video Output/sample1_draft.mp4`
+6. assembles generated clips into `/app/Video Output/script1_draft.mp4`
 
 Inspect:
 
 ```bash
-python -m json.tool /app/artifacts/sample1/shot_plan.json | sed -n '1,280p'
-python -m json.tool /app/artifacts/sample1/generated_assets.json | sed -n '1,220p'
+python -m json.tool /app/artifacts/script1/shot_plan.json | sed -n '1,280p'
+python -m json.tool /app/artifacts/script1/generated_assets.json | sed -n '1,220p'
 ls -lh "/app/Video Output"
 ```
 
@@ -179,8 +186,8 @@ ls -lh "/app/Video Output"
 
 The pipeline is explicit rather than magical:
 
-1. Videos in `Supporting Data/general_assets/video` are optional for now. They are reserved for future video-input generation and can still be analyzed if present.
-2. Other videos under `Supporting Data` are optional; they are scanned and inventoried for style and shot planning.
+1. Videos in `Supporting Data/general_assets/video` are optional for now. They are analyzed only when listed as active script references.
+2. Other videos under `Supporting Data` are optional; they can be referenced from `global_style.general_reference_assets` or scene `reference_assets`.
 3. Images are inventoried and can be attached to scenes through `reference_assets`.
 4. The model receives semantic text from `role`, `label`, and `prompt_hint`.
 5. The model receives actual image files only when the provider supports that input.
@@ -256,11 +263,11 @@ python -m pipeline run --run-config /app/run_parameters.yaml
 
 Not enough Kling images:
 
-Add at least two scene image references in `Scripts/sample1.json`, or lower `generation.kling_multi_image_min_images` only if your provider supports one-image mode.
+Add at least two active scene image references in `Scripts/script1.json`, or lower `generation.kling_multi_image_min_images` only if your provider supports one-image mode.
 
 Wrong script path:
 
-Use `script_file: Scripts/sample1.json` or an absolute path.
+Use `script_file: Scripts/script1.json` or an absolute path.
 
 Kling ignores local images:
 

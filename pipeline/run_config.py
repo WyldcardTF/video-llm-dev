@@ -73,10 +73,6 @@ class SelectionParameters:
     preferred_reference_types: list[str] = field(
         default_factory=lambda: ["reference_videos", "general_asset_videos", "closeup_videos", "broll_videos"]
     )
-    use_input_images: bool = True
-    use_input_videos: bool = False
-    require_videos: bool = False
-    allow_images_as_fallback: bool = False
     max_reference_videos: int | None = None
 
 
@@ -147,14 +143,6 @@ class RunParameters:
     def bundle_scan_root(self, settings: Settings) -> Path:
         return self.input_root(settings)
 
-    def required_reference_video_source(self, settings: Settings) -> Path:
-        root = self.input_root(settings)
-        reference_subfolder = self.asset_subfolders.get(
-            "reference_videos",
-            "Supporting Data/general_assets/video",
-        )
-        return root / reference_subfolder
-
     def supporting_video_sources(self, settings: Settings) -> list[Path]:
         root = self.input_root(settings)
         if self.analysis_video_subfolders:
@@ -204,7 +192,7 @@ def load_run_parameters(path: Path) -> RunParameters:
         run_name=run_name,
         description=_get_text(payload, "description", default="") or "",
         input_folder=input_folder,
-        script_file=_get_text(payload, "script_file", default="sample1.json") or "sample1.json",
+        script_file=_get_text(payload, "script_file", default="script1.json") or "script1.json",
         output_file=_get_text(payload, "output_file", default=f"{slugify(run_name)}_draft.mp4")
         or f"{slugify(run_name)}_draft.mp4",
         artifact_subdir=_get_text(payload, "artifact_subdir", default=slugify(run_name)) or slugify(run_name),
@@ -395,10 +383,6 @@ def _build_selection(payload: Any) -> SelectionParameters:
             "preferred_reference_types",
             default=["reference_videos", "general_asset_videos", "closeup_videos", "broll_videos"],
         ),
-        use_input_images=_get_bool(payload, "use_input_images", default=True),
-        use_input_videos=_get_bool(payload, "use_input_videos", default=False),
-        require_videos=_get_bool(payload, "require_videos", default=False),
-        allow_images_as_fallback=_get_bool(payload, "allow_images_as_fallback", default=False),
         max_reference_videos=_get_optional_int(payload, "max_reference_videos"),
     )
 

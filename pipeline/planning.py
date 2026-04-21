@@ -332,25 +332,6 @@ def _select_asset_for_scene(
     if asset_inventory is None or not asset_inventory.items:
         return None
 
-    preferred_types = [
-        str(item).strip()
-        for item in scene.metadata.get("preferred_asset_types", [])
-        if str(item).strip()
-    ]
-    fallback_types = [
-        "reference_videos",
-        "general_asset_videos",
-        "general_asset_images",
-        "closeup_videos",
-        "broll_videos",
-        "testimonials_videos",
-        "portraits",
-        "product_shots",
-        "closeup_images",
-        "broll_images",
-    ]
-    search_types = preferred_types + [item for item in fallback_types if item not in preferred_types]
-
     scene_reference_paths = {
         _normalized_path(reference.path)
         for reference in scene.reference_assets
@@ -368,25 +349,7 @@ def _select_asset_for_scene(
         if matching_assets:
             return matching_assets[(index - 1) % len(matching_assets)]
 
-    for asset_type in search_types:
-        candidates = [
-            item
-            for item in asset_inventory.items
-            if item.asset_type == asset_type
-        ]
-        if not candidates:
-            continue
-
-        video_candidates = [item for item in candidates if item.media_kind == "video"]
-        if video_candidates:
-            return video_candidates[(index - 1) % len(video_candidates)]
-        return candidates[(index - 1) % len(candidates)]
-
-    video_candidates = [item for item in asset_inventory.items if item.media_kind == "video"]
-    if video_candidates:
-        return video_candidates[(index - 1) % len(video_candidates)]
-
-    return asset_inventory.items[(index - 1) % len(asset_inventory.items)]
+    return None
 
 
 def _resolve_reference_image(

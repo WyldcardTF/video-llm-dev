@@ -4,7 +4,7 @@ This repo is a prototype pipeline for turning a project bundle plus a structured
 
 The important workflow split is:
 
-1. `train` scans the selected project in `/app/Input`, inventories scene images, optionally analyzes supporting videos, and writes reusable artifacts.
+1. `train` scans the selected project in `/app/Input`, inventories images, analyzes active video references from the script when present, and writes reusable artifacts.
 2. `generate` loads those artifacts, builds a shot plan from the script, calls a selected full video-generation provider, and assembles the generated clips.
 
 There is no local panning/image-only generation mode. Output clips must come from a real video-generation backend.
@@ -17,10 +17,12 @@ The sample project lives here:
 
 Key folders:
 
-1. `Scripts/sample1.json` is the structured scene script.
+1. `Scripts/script1.json` is the structured scene script.
 2. `Supporting Data/general_assets/video/` is an optional future video-reference pool.
 3. `Supporting Data/general_assets/images/` contains optional scene image references.
 4. The rest of `Supporting Data/` is optional supporting media: closeups, b-roll, portraits, product shots, brand assets, audio, docs, and overlays.
+
+Inside any `Supporting Data` branch, the final folder can be `general` for whole-video context or a scene name such as `scene 1` for scene-specific context. The matcher is case-insensitive.
 
 ## Model Choices
 
@@ -74,12 +76,6 @@ Train:
 python -m pipeline train --run-config /app/run_parameters.yaml
 ```
 
-For the current image-to-video flow, this is equivalent to:
-
-```bash
-python -m pipeline train --run-config /app/run_parameters.yaml --use-input-images --no-use-input-videos
-```
-
 Generate:
 
 ```bash
@@ -99,6 +95,8 @@ Scripts can now attach explicit supporting files to each scene:
 ```json
 {
   "path": "Supporting Data/general_assets/images/Scene 1/1.png",
+  "use_asset": true,
+  "asset_type": "image",
   "role": "character",
   "label": "lead talent face reference",
   "prompt_hint": "Preserve facial proportions, blonde styling, and premium beauty framing.",
@@ -106,6 +104,6 @@ Scripts can now attach explicit supporting files to each scene:
 }
 ```
 
-The model does not magically know why an image matters. The pipeline sends the image when the provider supports it, and it also writes the `role`, `label`, and `prompt_hint` into the prompt so the model has semantic instructions.
+The model does not magically know why an image matters. `use_asset: false` disables a listed file, `asset_type: image` or `video` tells the pipeline how to treat it, and `role`, `label`, and `prompt_hint` become semantic instructions in the prompt.
 
 For the deep guide, read [docs/tutorial.md](/app/docs/tutorial.md). For the practical command-line runbook, read [docs/walkthrough.md](/app/docs/walkthrough.md).

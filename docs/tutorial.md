@@ -12,7 +12,7 @@ The pipeline is:
 Input project -> train artifacts -> script references -> shot plan -> provider API -> generated clips -> render
 ```
 
-`train` does not fine-tune Sora, Veo, or Kling. It analyzes your reference videos and builds local artifacts:
+`train` does not fine-tune Sora, Veo, or Kling. It inventories images, analyzes active script video references when present, and builds local artifacts:
 
 1. `video_analyses.json`
 2. `style_profile.json`
@@ -29,7 +29,7 @@ The new project layout is rooted at `/app/Input`:
 /app/Input/
   Blonde Blazer Romance/
     Scripts/
-      sample1.json
+      script1.json
     Supporting Data/
       general_assets/
         video/
@@ -51,7 +51,9 @@ asset_subfolders:
   reference_videos: Supporting Data/general_assets/video
 ```
 
-The current active path is image-to-video, so scene images are enough. Videos are optional support data for analysis today and future video-input generation later.
+The current active path is image-to-video, so scene images are enough. Videos are optional and are analyzed only when active in `global_style.general_reference_assets`, scene `reference_assets`, or an explicit `train --source` override.
+
+Supporting data is also scene-aware. Any last folder named `general` is treated as global context for the whole generated video. Any last folder whose name matches a script scene, such as `scene 1` or `Scene 1`, is attached only to that scene. This matching is case-insensitive.
 
 ## Configuration Layers
 
@@ -73,11 +75,7 @@ KLING_API_SECRET_KEY=
 
 ```yaml
 input_folder: Blonde Blazer Romance
-script_file: Scripts/sample1.json
-
-selection:
-  use_input_images: true
-  use_input_videos: false
+script_file: Scripts/script1.json
 
 generation:
   backend: auto
@@ -88,12 +86,7 @@ models:
 
 The current default is intentionally cost-conscious: Kling multi-image-to-video, silent, 5 seconds, `540p`, and up to four scene reference images.
 
-`selection.use_input_images` and `selection.use_input_videos` decide what `train` consumes. For the current Kling path, images are on and videos are off. You can override this from the CLI:
-
-```bash
-python -m pipeline train --run-config /app/run_parameters.yaml --use-input-images --no-use-input-videos
-python -m pipeline train --run-config /app/run_parameters.yaml --use-input-images --use-input-videos
-```
+`train` inventories project images and analyzes only active video references from the script, plus an explicit `--source` override if you provide one. Whether a specific file is used is controlled in the script with `use_asset` and `asset_type`, not by CLI input-mode switches.
 
 Relative script paths are resolved in this order:
 
@@ -104,8 +97,8 @@ Relative script paths are resolved in this order:
 That means both of these work:
 
 ```yaml
-script_file: Scripts/sample1.json
-script_file: sample1.json
+script_file: Scripts/script1.json
+script_file: script1.json
 ```
 
 ## Model Selection
@@ -326,6 +319,8 @@ A scene can contain:
 "reference_assets": [
   {
     "path": "Supporting Data/general_assets/images/Scene 1/1.png",
+    "use_asset": true,
+    "asset_type": "image",
     "role": "character",
     "label": "lead talent face reference",
     "prompt_hint": "Preserve facial proportions and beauty-ad framing.",
@@ -344,6 +339,32 @@ Supported reference fields:
 6. `general_assets_video`
 7. legacy single `reference_image`
 
+Global references live under `global_style.general_reference_assets` and are attached to every scene:
+
+```json
+"global_style": {
+  "general_reference_assets": [
+    {
+      "path": "Supporting Data/general_assets/video/general/reference.mp4",
+      "use_asset": true,
+      "asset_type": "video",
+      "role": "motion_reference",
+      "label": "global motion reference",
+      "prompt_hint": "Use this for pacing and camera language.",
+      "provider_use": "prompt_and_frame"
+    }
+  ]
+}
+```
+
+For both `general_reference_assets` and scene `reference_assets`:
+
+1. `use_asset: true` means the asset is active; `false` means it is ignored without deleting it from the script.
+2. `asset_type: image` means the file can be prepared as image input for providers like Kling multi-image.
+3. `asset_type: video` means the file is treated as video support; today it is primarily prompt/motion context, with future video-input hooks already scaffolded.
+
+If you want a pure image-first training pass, set `use_asset: false` on video references. If an active video reference exists, `train` analyzes it and uses that analysis for the style profile.
+
 Path resolution tries:
 
 1. absolute path
@@ -353,6 +374,13 @@ Path resolution tries:
 5. a field-specific helper folder, such as `Supporting Data/general_assets/images`
 
 If a reference points to a directory, the parser expands supported image/video files inside it.
+
+The parser also auto-discovers files under `Supporting Data`:
+
+1. `.../general/` folders become global references for every scene.
+2. `.../scene 1/` folders become references only for script scene `Scene 1`.
+3. `.../scene 2/` folders become references only for script scene `Scene 2`.
+4. Matching ignores capitalization and spaces/punctuation.
 
 ## Do Models Understand The Files?
 
@@ -488,6 +516,6 @@ python -m pipeline video-models
 python -m pipeline show-run-config --run-config /app/run_parameters.yaml
 python -m pipeline train --run-config /app/run_parameters.yaml
 python -m pipeline generate --run-config /app/run_parameters.yaml
-python -m json.tool /app/artifacts/sample1/shot_plan.json | sed -n '1,260p'
-python -m json.tool /app/artifacts/sample1/generated_assets.json | sed -n '1,220p'
+python -m json.tool /app/artifacts/script1/shot_plan.json | sed -n '1,260p'
+python -m json.tool /app/artifacts/script1/generated_assets.json | sed -n '1,220p'
 ```
