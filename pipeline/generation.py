@@ -290,6 +290,27 @@ def _prepare_single_reference(
     )
 
 
+def _prepare_future_video_input_reference(
+    item: ShotPlanItem,
+    output_dir: Path,
+) -> Path | None:
+    """Scaffold for future video-to-video providers.
+
+    The current Kling path intentionally does not use source video as an input.
+    When we add video-conditioned generation later, this helper can trim the
+    selected source video to the planned shot window and return that clip.
+    """
+    if item.media_kind != "video" or not item.source_asset_path:
+        return None
+
+    source_path = Path(item.source_asset_path).expanduser().resolve()
+    if not source_path.exists() or source_path.suffix.lower() not in VIDEO_EXTENSIONS:
+        return None
+
+    # Not called today. Kept as the single future hook for video-input prep.
+    return output_dir / f"shot_{item.index:03d}_future_video_reference.mp4"
+
+
 def _extract_reference_frame(
     path: Path,
     output_dir: Path,

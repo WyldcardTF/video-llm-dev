@@ -73,7 +73,7 @@ class SelectionParameters:
     preferred_reference_types: list[str] = field(
         default_factory=lambda: ["reference_videos", "general_asset_videos", "closeup_videos", "broll_videos"]
     )
-    require_videos: bool = True
+    require_videos: bool = False
     allow_images_as_fallback: bool = False
     max_reference_videos: int | None = None
 
@@ -393,7 +393,7 @@ def _build_selection(payload: Any) -> SelectionParameters:
             "preferred_reference_types",
             default=["reference_videos", "general_asset_videos", "closeup_videos", "broll_videos"],
         ),
-        require_videos=_get_bool(payload, "require_videos", default=True),
+        require_videos=_get_bool(payload, "require_videos", default=False),
         allow_images_as_fallback=_get_bool(payload, "allow_images_as_fallback", default=False),
         max_reference_videos=_get_optional_int(payload, "max_reference_videos"),
     )

@@ -1,9 +1,9 @@
 run_name: sample1
 description: >
   Prototype run for the Blonde Blazer Romance project. This run reads the project
-  from /app/Input, trains reusable style artifacts from the primary reference
-  video plus optional supporting media, and generates new clips through a
-  selectable full video-generation provider.
+  from /app/Input, prepares reusable style artifacts from scene images plus any
+  optional supporting videos, and generates new clips through Kling multi-image
+  image-to-video.
 
 # Select the project folder under VIDEO_INPUT_DIR. Default VIDEO_INPUT_DIR is /app/Input.
 input_folder: Blonde Blazer Romance
@@ -21,9 +21,9 @@ artifact_subdir: sample1
 # Optional. If relative, this resolves inside the selected project folder.
 voiceover_file:
 
-# These are priority video pools for training. They are optional priority scans,
-# except asset_subfolders.reference_videos, which must contain at least one video
-# when selection.require_videos is true.
+# Optional priority video pools for future video-aware training. For now, videos
+# are not required. Kling multi-image generation is driven by scene image
+# references in the script.
 analysis_video_subfolders:
   - Supporting Data/general_assets/video
   - Supporting Data/closeups/videos
@@ -157,7 +157,9 @@ selection:
     - general_asset_images
     - closeup_videos
     - broll_videos
-  require_videos: true
+  # false means image-only projects are valid. Set true later if you want to
+  # require a video reference pool again.
+  require_videos: false
   allow_images_as_fallback: false
   max_reference_videos:
 

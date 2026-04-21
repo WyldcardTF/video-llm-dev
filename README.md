@@ -4,7 +4,7 @@ This repo is a prototype pipeline for turning a project bundle plus a structured
 
 The important workflow split is:
 
-1. `train` scans the selected project in `/app/Input`, analyzes required/supporting reference videos, and writes reusable artifacts.
+1. `train` scans the selected project in `/app/Input`, inventories scene images, optionally analyzes supporting videos, and writes reusable artifacts.
 2. `generate` loads those artifacts, builds a shot plan from the script, calls a selected full video-generation provider, and assembles the generated clips.
 
 There is no local panning/image-only generation mode. Output clips must come from a real video-generation backend.
@@ -18,7 +18,7 @@ The sample project lives here:
 Key folders:
 
 1. `Scripts/sample1.json` is the structured scene script.
-2. `Supporting Data/general_assets/video/` is the required primary video-reference pool.
+2. `Supporting Data/general_assets/video/` is an optional future video-reference pool.
 3. `Supporting Data/general_assets/images/` contains optional scene image references.
 4. The rest of `Supporting Data/` is optional supporting media: closeups, b-roll, portraits, product shots, brand assets, audio, docs, and overlays.
 
@@ -51,7 +51,8 @@ Set the relevant key in `.env`:
 OPENAI_API_KEY=...
 GOOGLE_VERTEX_PROJECT=...
 GOOGLE_VERTEX_LOCATION=us-central1
-KLING_API_KEY=...
+KLING_API_ACCESS_KEY=...
+KLING_API_SECRET_KEY=...
 KLING_BASE_URL=https://api.klingapi.com
 ```
 

@@ -188,12 +188,16 @@ class KlingVideoProvider(VideoProvider):
     provider_name = "kling"
 
     def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        if not request.settings.kling_api_key:
-            raise RuntimeError("KLING_API_KEY must be set in .env to use Kling video generation.")
+        if not request.settings.kling_api_access_key or not request.settings.kling_api_secret_key:
+            raise RuntimeError(
+                "KLING_API_ACCESS_KEY and KLING_API_SECRET_KEY must be set in .env "
+                "to use Kling video generation."
+            )
 
         base_url = request.settings.kling_base_url.rstrip("/")
         headers = {
-            "Authorization": f"Bearer {request.settings.kling_api_key}",
+            "X-Kling-API-Access-Key": request.settings.kling_api_access_key,
+            "X-Kling-API-Secret-Key": request.settings.kling_api_secret_key,
             "Content-Type": "application/json",
         }
         endpoint, payload, used_references = _build_kling_payload(request)

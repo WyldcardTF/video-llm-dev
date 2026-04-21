@@ -6,7 +6,7 @@ This is the practical command-line guide. For code-level internals, read [tutori
 
 1. A project folder under `/app/Input`.
 2. A script inside that project, usually `Scripts/sample1.json`.
-3. At least one video in `Supporting Data/general_assets/video/`.
+3. At least two scene images referenced from the script for Kling multi-image generation.
 4. A provider key for whichever video model you select.
 
 The sample project is:
@@ -26,7 +26,7 @@ python -m json.tool "/app/Input/Blonde Blazer Romance/Scripts/sample1.json"
 The important folders are:
 
 1. `Scripts/` for JSON scripts.
-2. `Supporting Data/general_assets/video/` for the required primary reference video.
+2. `Supporting Data/general_assets/video/` for optional future video references.
 3. `Supporting Data/general_assets/images/` for scene images.
 4. `Supporting Data/closeups`, `broll`, `portraits`, `product_shots`, `style_references`, `brand_assets`, `audio`, and `docs` for optional support.
 
@@ -78,7 +78,8 @@ If you do not set `GOOGLE_VERTEX_ACCESS_TOKEN`, the pipeline tries Application D
 Kling:
 
 ```bash
-KLING_API_KEY=...
+KLING_API_ACCESS_KEY=...
+KLING_API_SECRET_KEY=...
 KLING_BASE_URL=https://api.klingapi.com
 ```
 
@@ -128,10 +129,10 @@ python -m pipeline train --run-config /app/run_parameters.yaml
 
 This command:
 
-1. validates the required primary video folder
-2. scans optional supporting videos
-3. samples frames, motion, brightness, palette, and audio characteristics
-4. inventories images/videos under `Supporting Data`
+1. inventories images/videos under `Supporting Data`
+2. optionally scans supporting videos if present
+3. samples frame, motion, brightness, palette, and audio characteristics only for videos that exist
+4. builds an image-first style profile when no videos exist
 5. writes reusable artifacts under `/app/artifacts/sample1`
 
 Inspect:
@@ -169,7 +170,7 @@ ls -lh "/app/Video Output"
 
 The pipeline is explicit rather than magical:
 
-1. Videos in `Supporting Data/general_assets/video` are required and used for training style. They can also become scene motion references.
+1. Videos in `Supporting Data/general_assets/video` are optional for now. They are reserved for future video-input generation and can still be analyzed if present.
 2. Other videos under `Supporting Data` are optional; they are scanned and inventoried for style and shot planning.
 3. Images are inventoried and can be attached to scenes through `reference_assets`.
 4. The model receives semantic text from `role`, `label`, and `prompt_hint`.
@@ -244,9 +245,9 @@ python -m pipeline run --run-config /app/run_parameters.yaml
 
 ## Troubleshooting
 
-Required video missing:
+Not enough Kling images:
 
-Add at least one supported video to `Supporting Data/general_assets/video/`.
+Add at least two scene image references in `Scripts/sample1.json`, or lower `generation.kling_multi_image_min_images` only if your provider supports one-image mode.
 
 Wrong script path:
 

@@ -3,13 +3,25 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
+import cv2
+
 from .io_utils import read_json
-from .models import StyleProfile, VideoAnalysis
+from .models import AssetInventory, StyleProfile, VideoAnalysis
 
 
-def build_style_profile(analyses: list[VideoAnalysis]) -> StyleProfile:
+def build_style_profile(
+    analyses: list[VideoAnalysis],
+    asset_inventory: AssetInventory | None = None,
+) -> StyleProfile:
     if not analyses:
-        raise ValueError("At least one video analysis is required to build a style profile.")
+        return _build_image_first_style_profile(asset_inventory)
+
+    return _build_video_style_profile(analyses)
+
+
+def _build_video_style_profile(analyses: list[VideoAnalysis]) -> StyleProfile:
+    if not analyses:
+        raise ValueError("At least one video analysis is required for video-based style profiling.")
 
     resolution_counts = Counter((item.width, item.height) for item in analyses)
     target_width, target_height = resolution_counts.most_common(1)[0][0]
@@ -59,6 +71,69 @@ def build_style_profile(analyses: list[VideoAnalysis]) -> StyleProfile:
         style_summary=style_summary,
         reference_images=reference_images,
     )
+
+
+def _build_image_first_style_profile(asset_inventory: AssetInventory | None) -> StyleProfile:
+    image_items = [
+        item
+        for item in (asset_inventory.items if asset_inventory else [])
+        if item.media_kind == "image"
+    ]
+    if not image_items:
+        raise ValueError(
+            "No video analyses or image assets were found. Add at least two scene images "
+            "under the selected Input project, or add optional videos for style analysis."
+        )
+
+    resolution_counts = Counter(
+        (item.width or 720, item.height or 1280)
+        for item in image_items
+    )
+    target_width, target_height = resolution_counts.most_common(1)[0][0]
+
+    color_counter: Counter[str] = Counter()
+    brightness_values: list[float] = []
+    for item in image_items[:24]:
+        image = cv2.imread(item.path)
+        if image is None:
+            continue
+        brightness_values.append(float(image.mean() / 255.0))
+        pixels = image.reshape(-1, 3)
+        if len(pixels) == 0:
+            continue
+        for index in range(0, len(pixels), max(len(pixels) // 2000, 1)):
+            blue, green, red = pixels[index]
+            color_counter[_rgb_to_hex(int(red), int(green), int(blue))] += 1
+
+    average_brightness = (
+        sum(brightness_values) / len(brightness_values)
+        if brightness_values
+        else 0.5
+    )
+    color_palette = [color for color, _ in color_counter.most_common(5)]
+    if not color_palette:
+        color_palette = ["#d8c7b5", "#101010", "#f2eee8"]
+
+    return StyleProfile(
+        source_videos=[],
+        target_width=target_width,
+        target_height=target_height,
+        pacing_label="medium",
+        preferred_shot_duration_s=5.0,
+        average_brightness=round(average_brightness, 3),
+        average_motion=0.0,
+        color_palette=color_palette,
+        voice_style="voice analysis not available",
+        style_summary=(
+            "Image-first style profile built from supporting image references. "
+            f"Palette led by {', '.join(color_palette[:3])}; no source video motion was analyzed."
+        ),
+        reference_images=[item.path for item in image_items],
+    )
+
+
+def _rgb_to_hex(red: int, green: int, blue: int) -> str:
+    return f"#{red:02x}{green:02x}{blue:02x}"
 
 
 def load_style_profile(path: Path) -> StyleProfile:

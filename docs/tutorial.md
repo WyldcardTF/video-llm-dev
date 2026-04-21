@@ -44,14 +44,14 @@ The new project layout is rooted at `/app/Input`:
       docs/
 ```
 
-The required video source is configured by:
+The optional future video source is configured by:
 
 ```yaml
 asset_subfolders:
   reference_videos: Supporting Data/general_assets/video
 ```
 
-Everything else is optional support data.
+The current active path is image-to-video, so scene images are enough. Videos are optional support data for analysis today and future video-input generation later.
 
 ## Configuration Layers
 
@@ -65,7 +65,8 @@ PIPELINE_ARTIFACTS_DIR=/app/artifacts
 OPENAI_API_KEY=
 GOOGLE_VERTEX_PROJECT=
 GOOGLE_VERTEX_LOCATION=us-central1
-KLING_API_KEY=
+KLING_API_ACCESS_KEY=
+KLING_API_SECRET_KEY=
 ```
 
 `run_parameters.yaml` contains the creative run:
@@ -242,7 +243,7 @@ Google Veo:
 
 Kling:
 
-1. Requires `KLING_API_KEY`.
+1. Requires `KLING_API_ACCESS_KEY` and `KLING_API_SECRET_KEY`.
 2. Uses `KLING_BASE_URL`, defaulting to `https://api.klingapi.com`.
 3. Uses multi-image-to-video by default.
 4. Sends 2-4 scene images in `image_list`.

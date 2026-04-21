@@ -7,7 +7,7 @@ The current layout is:
 1. `Scripts/`
    Structured JSON scripts for this project. The sample run uses `Scripts/sample1.json`.
 2. `Supporting Data/general_assets/video/`
-   Required primary reference video pool. At least one supported video must exist here while `selection.require_videos: true`.
+   Optional future video-reference pool. The current Kling multi-image flow does not require videos.
 3. `Supporting Data/general_assets/images/`
    Scene-specific image references. For example, `Scene 1/1.png` can be referenced from the script.
 4. `Supporting Data/closeups/videos/` and `Supporting Data/closeups/images/`
@@ -23,7 +23,7 @@ The current layout is:
 9. `Supporting Data/audio/`
    Optional voiceover, music, and sound-effect folders.
 
-Only the primary reference video pool is mandatory. Everything else is supporting material.
+No video folder is mandatory for the current Kling multi-image flow. The scene images referenced from `Scripts/sample1.json` are the active inputs.
 
 Scene scripts can explain what each supporting file means:
 

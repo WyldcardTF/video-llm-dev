@@ -27,7 +27,7 @@ settings = get_settings()
 DEFAULT_RUN_CONFIG_PATH = Path("run_parameters.yaml")
 
 app = typer.Typer(
-    help="Prototype pipeline for training reusable style artifacts from reference videos and generating a draft video from a script."
+    help="Prototype pipeline for preparing reusable image/video style artifacts and generating a draft video from a script."
 )
 
 
@@ -71,7 +71,7 @@ def _resolve_project_dir(run_parameters: RunParameters, project_dir_override: Pa
 
 def _resolve_video_paths(run_parameters: RunParameters, source_override: Path | None) -> list[Path]:
     if source_override is not None:
-        return discover_video_files(source_override)
+        return discover_optional_video_files_from_sources([source_override])
 
     bundle_root = run_parameters.bundle_scan_root(settings)
     if not bundle_root.exists():
@@ -92,10 +92,8 @@ def _resolve_video_paths(run_parameters: RunParameters, source_override: Path | 
     )
     try:
         bundle_videos = discover_video_files(bundle_root)
-    except FileNotFoundError as exc:
-        raise FileNotFoundError(
-            f"No supported video files were found anywhere in the selected input bundle: {bundle_root}"
-        ) from exc
+    except FileNotFoundError:
+        bundle_videos = []
 
     video_paths = merge_unique_video_paths(
         required_videos,
@@ -127,9 +125,9 @@ def _train_artifacts(
 ) -> tuple[list[Path], list[VideoAnalysis], StyleProfile, AssetInventory]:
     video_paths = _resolve_video_paths(run_parameters, source_override)
     analyzer = _build_analyzer(run_parameters)
-    analyses = analyzer.analyze_many(video_paths, resolved_project_dir)
-    style_profile = build_style_profile(analyses)
+    analyses = analyzer.analyze_many(video_paths, resolved_project_dir) if video_paths else []
     asset_inventory = build_asset_inventory(run_parameters, settings, analyses)
+    style_profile = build_style_profile(analyses, asset_inventory)
 
     _save_resolved_run_config(run_parameters, resolved_project_dir)
     write_json(settings.analyses_path(resolved_project_dir), analyses)
@@ -196,7 +194,7 @@ def train(
     ),
     source: Path | None = typer.Option(
         None,
-        help="Optional override for the video source path. If omitted, the CLI requires at least one video in reference_videos and scans the selected input_folder recursively for additional supporting videos.",
+        help="Optional override for an extra video source path. Videos are optional for the current Kling image-to-video flow.",
     ),
     project_dir: Path | None = typer.Option(
         None,
@@ -211,9 +209,8 @@ def train(
         resolved_project_dir,
     )
 
-    typer.echo(
-        f"Trained reusable style artifacts from {len(video_paths)} video(s) for run '{run_parameters.run_name}'."
-    )
+    media_summary = f"{len(video_paths)} video(s)" if video_paths else "image-only supporting assets"
+    typer.echo(f"Prepared reusable style artifacts from {media_summary} for run '{run_parameters.run_name}'.")
     typer.echo(f"Training artifacts saved to {resolved_project_dir}")
     typer.echo(f"Style profile saved to {settings.style_profile_path(resolved_project_dir)}")
     typer.echo(f"Asset inventory saved to {settings.asset_inventory_path(resolved_project_dir)}")
