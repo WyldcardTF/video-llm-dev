@@ -74,6 +74,12 @@ Train:
 python -m pipeline train --run-config /app/run_parameters.yaml
 ```
 
+For the current image-to-video flow, this is equivalent to:
+
+```bash
+python -m pipeline train --run-config /app/run_parameters.yaml --use-input-images --no-use-input-videos
+```
+
 Generate:
 
 ```bash

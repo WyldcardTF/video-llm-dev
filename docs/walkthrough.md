@@ -135,6 +135,15 @@ This command:
 4. builds an image-first style profile when no videos exist
 5. writes reusable artifacts under `/app/artifacts/sample1`
 
+Input-mode flags:
+
+```bash
+python -m pipeline train --run-config /app/run_parameters.yaml --use-input-images --no-use-input-videos
+python -m pipeline train --run-config /app/run_parameters.yaml --use-input-images --use-input-videos
+```
+
+Use the first command for the current Kling image-to-video flow. Use the second later when you want videos analyzed as additional style/motion support.
+
 Inspect:
 
 ```bash

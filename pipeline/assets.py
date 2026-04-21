@@ -50,6 +50,13 @@ def build_asset_inventory(
             )
         )
 
+    if not run_parameters.selection.use_input_images:
+        summary = Counter(f"{item.asset_type}:{item.media_kind}" for item in items)
+        return AssetInventory(
+            items=items,
+            summary=dict(sorted(summary.items())),
+        )
+
     for asset_type, relative_path in asset_paths:
         asset_root = (root / relative_path).resolve()
         if not asset_root.exists():

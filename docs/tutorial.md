@@ -75,6 +75,10 @@ KLING_API_SECRET_KEY=
 input_folder: Blonde Blazer Romance
 script_file: Scripts/sample1.json
 
+selection:
+  use_input_images: true
+  use_input_videos: false
+
 generation:
   backend: auto
 
@@ -83,6 +87,13 @@ models:
 ```
 
 The current default is intentionally cost-conscious: Kling multi-image-to-video, silent, 5 seconds, `540p`, and up to four scene reference images.
+
+`selection.use_input_images` and `selection.use_input_videos` decide what `train` consumes. For the current Kling path, images are on and videos are off. You can override this from the CLI:
+
+```bash
+python -m pipeline train --run-config /app/run_parameters.yaml --use-input-images --no-use-input-videos
+python -m pipeline train --run-config /app/run_parameters.yaml --use-input-images --use-input-videos
+```
 
 Relative script paths are resolved in this order:
 

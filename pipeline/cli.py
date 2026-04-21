@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import typer
@@ -70,6 +70,9 @@ def _resolve_project_dir(run_parameters: RunParameters, project_dir_override: Pa
 
 
 def _resolve_video_paths(run_parameters: RunParameters, source_override: Path | None) -> list[Path]:
+    if not run_parameters.selection.use_input_videos:
+        return []
+
     if source_override is not None:
         return discover_optional_video_files_from_sources([source_override])
 
@@ -116,6 +119,26 @@ def _build_analyzer(run_parameters: RunParameters) -> VideoAnalyzer:
         transcription_max_seconds=run_parameters.analysis.transcription_max_seconds,
         openai_transcribe_model=run_parameters.models.transcription_model,
     )
+
+
+def _apply_input_mode_overrides(
+    run_parameters: RunParameters,
+    use_input_images: bool | None,
+    use_input_videos: bool | None,
+) -> RunParameters:
+    if use_input_images is None and use_input_videos is None:
+        return run_parameters
+
+    selection = run_parameters.selection
+    if use_input_images is not None:
+        selection = replace(selection, use_input_images=use_input_images)
+    if use_input_videos is not None:
+        selection = replace(
+            selection,
+            use_input_videos=use_input_videos,
+            require_videos=selection.require_videos and use_input_videos,
+        )
+    return replace(run_parameters, selection=selection)
 
 
 def _train_artifacts(
@@ -200,8 +223,22 @@ def train(
         None,
         help="Optional override for the artifact output directory. If omitted, the CLI uses artifact_subdir from the YAML run config.",
     ),
+    use_input_images: bool | None = typer.Option(
+        None,
+        "--use-input-images/--no-use-input-images",
+        help="Override whether train inventories image inputs. Defaults to selection.use_input_images in YAML.",
+    ),
+    use_input_videos: bool | None = typer.Option(
+        None,
+        "--use-input-videos/--no-use-input-videos",
+        help="Override whether train discovers/analyzes video inputs. Defaults to selection.use_input_videos in YAML.",
+    ),
 ) -> None:
-    run_parameters = load_run_parameters(run_config)
+    run_parameters = _apply_input_mode_overrides(
+        load_run_parameters(run_config),
+        use_input_images,
+        use_input_videos,
+    )
     resolved_project_dir = ensure_dir(_resolve_project_dir(run_parameters, project_dir))
     video_paths, _analyses, _style_profile, _asset_inventory = _train_artifacts(
         run_parameters,
@@ -209,7 +246,14 @@ def train(
         resolved_project_dir,
     )
 
-    media_summary = f"{len(video_paths)} video(s)" if video_paths else "image-only supporting assets"
+    if run_parameters.selection.use_input_images and run_parameters.selection.use_input_videos:
+        media_summary = f"image inputs plus {len(video_paths)} video(s)"
+    elif run_parameters.selection.use_input_images:
+        media_summary = "image inputs"
+    elif run_parameters.selection.use_input_videos:
+        media_summary = f"{len(video_paths)} video(s)"
+    else:
+        media_summary = "no enabled input media"
     typer.echo(f"Prepared reusable style artifacts from {media_summary} for run '{run_parameters.run_name}'.")
     typer.echo(f"Training artifacts saved to {resolved_project_dir}")
     typer.echo(f"Style profile saved to {settings.style_profile_path(resolved_project_dir)}")

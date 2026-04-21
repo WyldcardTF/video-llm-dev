@@ -151,6 +151,12 @@ models:
   voice_generation_model:
 
 selection:
+  # Active input-mode switches. The matching CLI flags are:
+  #   python -m pipeline train --use-input-images --no-use-input-videos
+  #   python -m pipeline train --use-input-images --use-input-videos
+  # For current Kling multi-image tests, use images and skip videos.
+  use_input_images: true
+  use_input_videos: false
   preferred_reference_types:
     - reference_videos
     - general_asset_videos
