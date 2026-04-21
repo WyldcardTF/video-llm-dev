@@ -54,10 +54,6 @@ class Settings:
     shot_plan_filename: str
     continuity_profile_filename: str
     resolved_run_config_filename: str
-    openai_api_key: str | None
-    google_vertex_project: str | None
-    google_vertex_location: str
-    google_vertex_access_token: str | None
     kling_api_access_key: str | None
     kling_api_secret_key: str | None
     kling_base_url: str
@@ -131,10 +127,6 @@ def get_settings() -> Settings:
         or "continuity_profile.json",
         resolved_run_config_filename=_env_text("RESOLVED_RUN_CONFIG_FILENAME", "resolved_run_config.json")
         or "resolved_run_config.json",
-        openai_api_key=_env_text("OPENAI_API_KEY"),
-        google_vertex_project=_env_text("GOOGLE_VERTEX_PROJECT"),
-        google_vertex_location=_env_text("GOOGLE_VERTEX_LOCATION", "us-central1") or "us-central1",
-        google_vertex_access_token=_env_text("GOOGLE_VERTEX_ACCESS_TOKEN"),
         kling_api_access_key=_env_text("KLING_API_ACCESS_KEY"),
         kling_api_secret_key=_env_text("KLING_API_SECRET_KEY"),
         kling_base_url=_env_text("KLING_BASE_URL", "https://api-singapore.klingai.com") or "https://api-singapore.klingai.com",

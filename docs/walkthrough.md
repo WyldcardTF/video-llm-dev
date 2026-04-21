@@ -1,19 +1,13 @@
 # Pipeline Walkthrough
 
-This is the practical command-line guide. For code-level internals, read [tutorial.md](./tutorial.md).
+This is the practical command-line guide for the Kling-only pipeline. For code-level internals, read [tutorial.md](./tutorial.md).
 
 ## What You Need
 
 1. A project folder under `/app/Input`.
 2. A script inside that project, usually `Scripts/script1.json`.
-3. At least two active `asset_type: image` references for Kling multi-image generation.
-4. A provider key for whichever video model you select.
-
-The sample project is:
-
-```bash
-/app/Input/Blonde Blazer Romance
-```
+3. Active `asset_type: image` references for Kling generation.
+4. Kling API keys.
 
 ## 1. Inspect The Project
 
@@ -23,20 +17,9 @@ find "/app/Input/Blonde Blazer Romance" -maxdepth 5 -type f | sort
 python -m json.tool "/app/Input/Blonde Blazer Romance/Scripts/script1.json"
 ```
 
-The important folders are:
+Scene folders such as `Supporting Data/.../scene 1` are matched to script scene names case-insensitively. Folders named `general` are treated as global context.
 
-1. `Scripts/` for JSON scripts.
-2. `Supporting Data/general_assets/video/` for optional future video references.
-3. `Supporting Data/general_assets/images/` for scene images.
-4. `Supporting Data/closeups`, `broll`, `portraits`, `product_shots`, `style_references`, `brand_assets`, `audio`, and `docs` for optional support.
-
-Folder naming convention:
-
-1. A final folder named `general` gives context to the whole video.
-2. A final folder named like `scene 1` gives context only to script scene `Scene 1`.
-3. Matching is case-insensitive, so `scene 1` and `Scene 1` both work.
-
-## 2. Choose A Video Model
+## 2. Choose A Kling Model
 
 List presets:
 
@@ -56,32 +39,12 @@ models:
 
 Good iteration ladder:
 
-1. `kling_2_5_turbo` for the cheapest scratchpad if available.
-2. `kling_2_6_std` for low-cost Kling multi-image testing: silent, 5 seconds, 540p.
-3. `veo_3_1_lite` for low-cost Veo prompt tests.
-4. `veo_3_1_fast` or `kling_2_6_pro` for stronger promising shots.
-5. `sora_2`, `veo_3_1_quality`, or `sora_2_pro` for higher-quality passes.
+1. `kling_2_5_turbo` for cheap scratch work if your account exposes it.
+2. `kling_2_6_std` for default 5-second 540p tests.
+3. `kling_2_6_pro` for stronger promising shots.
+4. `kling_2_6_pro_audio` when generated audio is needed.
 
-## 3. Set Provider Secrets
-
-Use only the provider you plan to run.
-
-OpenAI/Sora:
-
-```bash
-OPENAI_API_KEY=...
-```
-
-Google Veo on Vertex AI:
-
-```bash
-GOOGLE_VERTEX_PROJECT=your-google-cloud-project
-GOOGLE_VERTEX_LOCATION=us-central1
-```
-
-If you do not set `GOOGLE_VERTEX_ACCESS_TOKEN`, the pipeline tries Application Default Credentials and then `gcloud auth print-access-token`.
-
-Kling:
+## 3. Set Kling Secrets
 
 ```bash
 KLING_API_ACCESS_KEY=...
@@ -89,7 +52,7 @@ KLING_API_SECRET_KEY=...
 KLING_BASE_URL=https://api-singapore.klingai.com
 ```
 
-For the default Kling setup, that is enough. The pipeline sends 2-4 local scene images as base64 through the multi-image-to-video endpoint.
+The default flow uses `POST /v1/videos/multi-image2video` and sends local scene images as base64, so public image hosting is not required.
 
 ## 4. Inspect The Run Config
 
@@ -100,10 +63,10 @@ python -m pipeline show-run-config --run-config /app/run_parameters.yaml
 Check:
 
 1. `input_folder` is `Blonde Blazer Romance`.
-2. `script_file` resolves to `Input/Blonde Blazer Romance/Scripts/script1.json`.
-3. `asset_subfolders.reference_videos` points to `Supporting Data/general_assets/video`.
-4. `models.video_generation_model` is the preset you want.
-5. `generation.video_aspect_ratio` is quoted as `"9:16"` in YAML.
+2. `script_file` resolves to the script JSON.
+3. `models.video_generation_model` is a Kling preset.
+4. `generation.video_aspect_ratio` is `"9:16"`.
+5. `generation.kling_fit_reference_images` is `true` to fit landscape references into portrait-safe frames.
 
 ## 5. Edit Scene References
 
@@ -111,29 +74,25 @@ Each scene can include `reference_assets`:
 
 ```json
 {
-  "path": "Supporting Data/general_assets/images/Scene 1/1.png",
+  "path": "Supporting Data/general_assets/images/scene 1/1.png",
   "use_asset": true,
   "asset_type": "image",
   "role": "character",
   "label": "lead talent face reference",
-  "prompt_hint": "Preserve the lead talent's facial proportions and premium beauty-ad framing.",
+  "prompt_hint": "Preserve the lead talent's facial proportions and full-face beauty framing.",
   "provider_use": "reference_input"
 }
 ```
 
-What the fields mean:
+Important fields:
 
 1. `path` points to a local file/folder under the project or to an HTTP URL.
-2. `use_asset` controls whether the listed asset is active without deleting it from the script.
-3. `asset_type` is currently `image` or `video`, and tells the code how to prepare it.
-4. `role` tells the prompt what the asset means, such as `character`, `wardrobe`, `composition`, `style`, or `motion_reference`.
-5. `label` is a human-readable name.
-6. `prompt_hint` is the most important semantic instruction.
-7. `provider_use` tells future code and humans whether the asset is intended as `reference_input`, `prompt_only`, `prompt_and_reference`, or `prompt_and_frame`.
+2. `use_asset` enables or disables the asset.
+3. `asset_type` is `image` or `video`.
+4. `role`, `label`, and `prompt_hint` explain how Kling should use the asset.
+5. `provider_use` documents intent, such as `reference_input`, `prompt_only`, or `prompt_and_reference`.
 
-Whole-video context goes under `global_style.general_reference_assets`; scene-only context goes under that scene's `reference_assets`.
-
-If you want a pure image-first test, set `use_asset: false` on video references. If at least one active video reference exists, `train` analyzes it for style/motion artifacts.
+For full-face portrait shots, keep the scene text direct: say `full face visible`, `hairline and chin inside frame`, and `no half-face crop`.
 
 ## 6. Train
 
@@ -141,23 +100,7 @@ If you want a pure image-first test, set `use_asset: false` on video references.
 python -m pipeline train --run-config /app/run_parameters.yaml
 ```
 
-This command:
-
-1. inventories images under `Supporting Data`
-2. analyzes active `asset_type: video` references from the script when `use_asset: true`
-3. samples frame, motion, brightness, palette, and audio characteristics for those active videos
-4. builds an image-first style profile when no active videos exist
-5. writes reusable artifacts under `/app/artifacts/script1`
-
-There are no image/video input-mode flags now. Training inventories images and analyzes only active video references from the script; generation usage is controlled in the script with `use_asset` and `asset_type`.
-
-Inspect:
-
-```bash
-python -m json.tool /app/artifacts/script1/resolved_run_config.json | sed -n '1,240p'
-python -m json.tool /app/artifacts/script1/style_profile.json | sed -n '1,220p'
-python -m json.tool /app/artifacts/script1/asset_inventory.json | sed -n '1,260p'
-```
+Training inventories images, analyzes active video references if any are enabled, builds a style profile, and writes artifacts under `/app/artifacts/script1`.
 
 ## 7. Generate
 
@@ -165,14 +108,13 @@ python -m json.tool /app/artifacts/script1/asset_inventory.json | sed -n '1,260p
 python -m pipeline generate --run-config /app/run_parameters.yaml
 ```
 
-This command:
+Generation loads the artifacts, builds a shot plan, prepares Kling references, calls Kling once per shot, and renders the next progressive draft in `/app/Video Output`.
 
-1. loads trained artifacts
-2. loads the scene script
-3. builds continuity and shot-plan JSON
-4. prepares provider references
-5. calls the selected video-generation provider once per shot
-6. assembles generated clips into `/app/Video Output/script1_draft.mp4`
+With `output_file: script1_draft.mp4`, outputs are:
+
+1. `script1_draft_1.mp4`
+2. `script1_draft_2.mp4`
+3. `script1_draft_3.mp4`
 
 Inspect:
 
@@ -182,101 +124,11 @@ python -m json.tool /app/artifacts/script1/generated_assets.json | sed -n '1,220
 ls -lh "/app/Video Output"
 ```
 
-## How Supporting Data Is Used
+## Kling Reference Behavior
 
-The pipeline is explicit rather than magical:
-
-1. Videos in `Supporting Data/general_assets/video` are optional for now. They are analyzed only when listed as active script references.
-2. Other videos under `Supporting Data` are optional; they can be referenced from `global_style.general_reference_assets` or scene `reference_assets`.
-3. Images are inventoried and can be attached to scenes through `reference_assets`.
-4. The model receives semantic text from `role`, `label`, and `prompt_hint`.
-5. The model receives actual image files only when the provider supports that input.
-6. Kling multi-image uses local base64 images by default. If your gateway rejects base64, switch to URL transport with `generation.public_asset_base_url`.
-7. 3D models, docs, overlays, brand assets, music, and SFX are inventoried or preserved as structure today, but they are not yet directly rendered into generated video.
-
-## Provider Reference Behavior
-
-OpenAI/Sora:
-
-1. Uses text prompts.
-2. Can use one prepared local image reference as the opening frame.
-3. If the selected reference is a video, the pipeline extracts a still frame first.
-
-Google Veo:
-
-1. Uses text prompts through Vertex AI.
-2. Veo 3.1 Fast/Quality can receive local asset reference images.
-3. Veo 3.1 Lite is treated as prompt-first/low-cost.
-4. Style reference images are kept as prompt guidance because Veo 3.1 does not support style-reference images the same way older Veo style flows did.
-
-Kling:
-
-1. Uses text prompts.
-2. Uses multi-image-to-video by default when at least two scene images are available.
-3. Sends local image files as base64 by default.
-4. Can switch to public URL transport if your Kling gateway requires URLs.
-
-## Common Changes
-
-Change model:
-
-```yaml
-models:
-  video_generation_model: veo_3_1_fast
-```
-
-Use Sora:
-
-```yaml
-models:
-  video_generation_model: sora_2
-```
-
-Use higher quality Sora:
-
-```yaml
-models:
-  video_generation_model: sora_2_pro
-```
-
-Use Google Veo quality:
-
-```yaml
-models:
-  video_generation_model: veo_3_1_quality
-```
-
-Use Kling Pro:
-
-```yaml
-models:
-  video_generation_model: kling_2_6_pro
-```
-
-Run both stages:
-
-```bash
-python -m pipeline run --run-config /app/run_parameters.yaml
-```
-
-## Troubleshooting
-
-Not enough Kling images:
-
-Add at least two active scene image references in `Scripts/script1.json`, or lower `generation.kling_multi_image_min_images` only if your provider supports one-image mode.
-
-Wrong script path:
-
-Use `script_file: Scripts/script1.json` or an absolute path.
-
-Kling ignores local images:
-
-Check `generation.kling_local_image_transport`. The default is `base64`, which uploads local image bytes in `image_list`. If your gateway only accepts URLs, set `kling_local_image_transport: url` and provide `generation.public_asset_base_url`.
-
-Google Veo auth fails:
-
-Set `GOOGLE_VERTEX_PROJECT`, authenticate with `gcloud auth application-default login`, or set `GOOGLE_VERTEX_ACCESS_TOKEN`.
-
-The generated clip is expensive:
-
-Drop to `kling_2_6_std`, `kling_2_5_turbo`, or `veo_3_1_lite`, reduce scene count, and keep durations short.
+1. `multi_image_to_video` sends 2-4 active image references in `image_list`.
+2. `image_to_video` sends one image as `image`.
+3. `text_to_video` sends only the prompt.
+4. Local images are base64 by default.
+5. Local base64 images are fit into the target aspect ratio before upload, reducing accidental portrait crops from landscape inputs.
+6. `kling_extra_payload` can carry gateway-specific fields.

@@ -5,7 +5,6 @@ pydantic
 PyYAML
 tqdm
 requests
-google-auth
 
 # Video processing
 moviepy
@@ -16,4 +15,3 @@ Pillow
 
 # LLM access
 litellm
-openai

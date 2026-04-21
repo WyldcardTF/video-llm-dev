@@ -82,11 +82,7 @@ render:
   output_height:
 
 generation:
-  # Fully generative providers only:
-  # - auto: choose provider from models.video_generation_model preset
-  # - openai_video: OpenAI Sora models
-  # - google_veo: Google Vertex AI Veo models
-  # - kling: Kling API models
+  # Kling-only video generation. auto resolves to Kling from the selected preset.
   backend: auto
 
   # If true, scene reference images/videos are attached when the provider supports
@@ -97,18 +93,16 @@ generation:
   # character, wardrobe, composition, and style/mood references together.
   reference_asset_limit: 4
 
-  # For Sora/OpenAI and some Kling gateways. Leave blank to use preset defaults.
-  # Sora examples: 720x1280, 1280x720, 1080x1920, 1920x1080 depending on model.
+  # Optional size override for gateways that accept explicit dimensions.
   video_size:
 
-  # For Google Veo and Kling.
   video_aspect_ratio: "9:16"
   # Cheap Kling tests should stay at 540p. Increase to 720p or 1080p only after
   # the prompt/reference setup looks good.
   video_resolution: 540p
 
   # Keep this at 5 while testing Kling. Increase to 10 only when you need longer motion.
-  # OpenAI: 4/8/12/16/20. Veo: 4/6/8. Kling: 5/10.
+  # Kling duration buckets: 5 or 10 seconds.
   video_duration_seconds: 5
   video_poll_interval_ms: 2000
 
@@ -123,6 +117,19 @@ generation:
   kling_model_field: model_name
   kling_multi_image_min_images: 2
   kling_multi_image_max_images: 4
+  # Fit landscape scene references into the target 9:16 canvas before base64
+  # upload. This helps prevent portrait generation from cropping half the face.
+  kling_fit_reference_images: true
+  # Prompt adherence. Kling gateway docs commonly expose cfg_scale in the 0-1
+  # range; leave blank to use the provider default.
+  kling_cfg_scale:
+  # Optional async callback / caller tracking fields when supported by gateway.
+  kling_callback_url:
+  kling_external_task_id:
+  # Optional camera_control mapping for Kling image/text-to-video requests.
+  kling_camera_control: {}
+  # Escape hatch for provider-specific payload keys not modeled above.
+  kling_extra_payload: {}
   # Keep audio off while testing. Audio can double cost on some Kling gateways.
   kling_sound: false
   kling_mode: standard
@@ -131,11 +138,6 @@ generation:
   # for gateways that do not accept base64 image_list values.
   public_asset_base_url:
 
-  # Google Veo settings. Leave google_output_gcs_uri blank to request inline video
-  # bytes. If you set a gs:// bucket, the pipeline downloads with `gcloud storage cp`.
-  google_output_gcs_uri:
-  google_person_generation: allow_adult
-  google_sample_count: 1
   seed:
 
 models:
@@ -145,12 +147,8 @@ models:
   # Friendly presets, roughly cheapest to most expensive:
   # - kling_2_5_turbo: very cheap scratchpad if available on your Kling account
   # - kling_2_6_std: cheap multi-image default, silent 5s/540p in this file
-  # - veo_3_1_lite: low-cost Veo prompt tests
-  # - veo_3_1_fast: medium-cost Veo with reference images
   # - kling_2_6_pro: stronger Kling pass
-  # - sora_2: OpenAI frontier baseline
-  # - veo_3_1_quality: stronger Veo pass
-  # - sora_2_pro: highest-cost/final OpenAI pass
+  # - kling_2_6_pro_audio: Kling Pro with generated audio
   video_generation_model: kling_2_6_std
   voice_generation_model:
 

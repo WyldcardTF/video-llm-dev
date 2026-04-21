@@ -415,10 +415,20 @@ def _global_reference_assets(metadata: dict[str, Any]) -> Any:
 
 def _asset_is_enabled(item: dict[str, Any]) -> bool:
     value = item.get("use_asset", True)
+    return _bool_from_value(value, default=True)
+
+
+def _bool_from_value(value: Any, default: bool) -> bool:
+    if value is None:
+        return default
     if isinstance(value, bool):
         return value
     normalized = str(value).strip().lower()
-    return normalized not in {"0", "false", "no", "off", "skip", "disabled"}
+    if normalized in {"1", "true", "yes", "on", "enabled"}:
+        return True
+    if normalized in {"0", "false", "no", "off", "skip", "disabled"}:
+        return False
+    return default
 
 
 def _media_kind_from_asset_type(value: Any) -> str | None:

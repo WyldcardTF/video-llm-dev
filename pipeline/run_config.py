@@ -54,9 +54,12 @@ class GenerationParameters:
     kling_model_field: str = "model_name"
     kling_multi_image_min_images: int = 2
     kling_multi_image_max_images: int = 4
-    google_output_gcs_uri: str | None = None
-    google_person_generation: str = "allow_adult"
-    google_sample_count: int = 1
+    kling_fit_reference_images: bool = True
+    kling_cfg_scale: float | None = None
+    kling_callback_url: str | None = None
+    kling_external_task_id: str | None = None
+    kling_camera_control: dict[str, Any] = field(default_factory=dict)
+    kling_extra_payload: dict[str, Any] = field(default_factory=dict)
     seed: int | None = None
 
 
@@ -347,14 +350,12 @@ def _build_generation(payload: Any) -> GenerationParameters:
         kling_model_field=_get_text(payload, "kling_model_field", default="model_name") or "model_name",
         kling_multi_image_min_images=_get_int(payload, "kling_multi_image_min_images", default=2),
         kling_multi_image_max_images=_get_int(payload, "kling_multi_image_max_images", default=4),
-        google_output_gcs_uri=_get_text(payload, "google_output_gcs_uri"),
-        google_person_generation=_get_text(
-            payload,
-            "google_person_generation",
-            default="allow_adult",
-        )
-        or "allow_adult",
-        google_sample_count=_get_int(payload, "google_sample_count", default=1),
+        kling_fit_reference_images=_get_bool(payload, "kling_fit_reference_images", default=True),
+        kling_cfg_scale=_get_optional_float(payload, "kling_cfg_scale"),
+        kling_callback_url=_get_text(payload, "kling_callback_url"),
+        kling_external_task_id=_get_text(payload, "kling_external_task_id"),
+        kling_camera_control=_get_dict(payload, "kling_camera_control"),
+        kling_extra_payload=_get_dict(payload, "kling_extra_payload"),
         seed=_get_optional_int(payload, "seed"),
     )
 
@@ -428,6 +429,13 @@ def _get_optional_int(mapping: dict[str, Any], key: str) -> int | None:
     return int(value)
 
 
+def _get_optional_float(mapping: dict[str, Any], key: str) -> float | None:
+    value = mapping.get(key)
+    if value in (None, ""):
+        return None
+    return float(value)
+
+
 def _get_float(mapping: dict[str, Any], key: str, default: float) -> float:
     value = mapping.get(key)
     if value is None:
@@ -447,6 +455,15 @@ def _get_bool(mapping: dict[str, Any], key: str, default: bool) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ValueError(f"Invalid boolean value for {key}: {value}")
+
+
+def _get_dict(mapping: dict[str, Any], key: str) -> dict[str, Any]:
+    value = mapping.get(key)
+    if value in (None, ""):
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} must be a YAML mapping.")
+    return dict(value)
 
 
 def _get_str_list(mapping: dict[str, Any], key: str, default: list[str] | None = None) -> list[str]:

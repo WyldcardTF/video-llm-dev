@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import asdict
 from pathlib import Path
 
@@ -58,6 +59,39 @@ def _resolve_output_path(run_parameters: RunParameters, output_override: Path | 
     return settings.video_output_dir / candidate
 
 
+def _next_progressive_output_path(output_path: Path) -> Path:
+    output_path = output_path.expanduser()
+    parent = output_path.parent
+    suffix = output_path.suffix or ".mp4"
+    stem = output_path.stem
+    match = re.fullmatch(r"(?P<base>.+)_draft(?:_(?P<number>\d+))?", stem)
+    if match:
+        base_stem = f"{match.group('base')}_draft"
+    else:
+        base_stem = stem
+
+    pattern = re.compile(rf"^{re.escape(base_stem)}_(\d+){re.escape(suffix)}$")
+    existing_numbers = [
+        int(found.group(1))
+        for candidate in parent.glob(f"{base_stem}_*{suffix}")
+        if (found := pattern.fullmatch(candidate.name))
+    ]
+
+    if existing_numbers or stem == base_stem:
+        return parent / f"{base_stem}_{max(existing_numbers, default=0) + 1}{suffix}"
+
+    if not output_path.exists():
+        return output_path
+
+    numbered_pattern = re.compile(rf"^{re.escape(stem)}_(\d+){re.escape(suffix)}$")
+    sibling_numbers = [
+        int(found.group(1))
+        for candidate in parent.glob(f"{stem}_*{suffix}")
+        if (found := numbered_pattern.fullmatch(candidate.name))
+    ]
+    return parent / f"{stem}_{max(sibling_numbers, default=0) + 1}{suffix}"
+
+
 def _resolve_project_dir(run_parameters: RunParameters, project_dir_override: Path | None) -> Path:
     if project_dir_override is None:
         return run_parameters.project_dir(settings)
@@ -97,7 +131,6 @@ def _build_analyzer(run_parameters: RunParameters) -> VideoAnalyzer:
         transcribe_voice=run_parameters.analysis.transcribe_voice,
         audio_analysis_max_seconds=run_parameters.analysis.audio_analysis_max_seconds,
         transcription_max_seconds=run_parameters.analysis.transcription_max_seconds,
-        openai_transcribe_model=run_parameters.models.transcription_model,
     )
 
 
@@ -284,7 +317,7 @@ def generate(
     write_json(settings.generated_assets_manifest_path(resolved_project_dir), generated_assets_manifest)
     _save_resolved_run_config(run_parameters, resolved_project_dir)
 
-    resolved_output = _resolve_output_path(run_parameters, output)
+    resolved_output = _next_progressive_output_path(_resolve_output_path(run_parameters, output))
     render_path = render_plan(
         plan,
         style_profile,

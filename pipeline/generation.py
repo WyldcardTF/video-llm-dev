@@ -3,6 +3,7 @@ from __future__ import annotations
 import urllib.parse
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import cv2
 
@@ -109,6 +110,7 @@ def _generate_video_asset(
         aspect_ratio=aspect_ratio,
         resolution=resolution,
         references=references,
+        provider_options=_provider_options_for_item(item),
     )
     result = provider.generate(request)  # type: ignore[attr-defined]
 
@@ -169,6 +171,16 @@ def _reference_prompt_text(reference: PreparedReference) -> str:
     if reference.provider_use:
         parts.append(f"use={reference.provider_use}")
     return ", ".join(parts)
+
+
+def _provider_options_for_item(item: ShotPlanItem) -> dict[str, Any]:
+    value = item.scene_metadata.get("provider_options")
+    if isinstance(value, dict):
+        return value
+    kling_value = item.scene_metadata.get("kling")
+    if isinstance(kling_value, dict):
+        return {"kling": kling_value}
+    return {}
 
 
 def _prepare_references(
@@ -257,24 +269,19 @@ def _prepare_single_reference(
     prepared_path = path
     mime_type = _mime_type_for_path(path)
 
-    if media_kind == "video" and provider_name in {"openai_video", "google_veo"}:
-        prepared_path = _extract_reference_frame(
-            path=path,
-            output_dir=output_dir,
-            shot_index=item.index,
-            reference_index=reference_index,
-            clip_start_s=item.clip_start_s or 0.0,
-        )
-        media_kind = "image"
-        mime_type = "image/png"
-
-    if media_kind == "image" and provider_name == "openai_video" and size:
-        prepared_path = _resize_image_reference(
+    if (
+        media_kind == "image"
+        and provider_name == "kling"
+        and run_parameters.generation.kling_fit_reference_images
+        and run_parameters.generation.kling_local_image_transport.strip().lower() == "base64"
+    ):
+        prepared_path = _fit_image_reference_to_aspect(
             path=prepared_path,
             output_dir=output_dir,
             shot_index=item.index,
             reference_index=reference_index,
-            size=size,
+            aspect_ratio=run_parameters.generation.video_aspect_ratio,
+            resolution=run_parameters.generation.video_resolution,
         )
         mime_type = "image/png"
 
@@ -352,6 +359,83 @@ def _resize_image_reference(
     return output_path
 
 
+def _fit_image_reference_to_aspect(
+    path: Path,
+    output_dir: Path,
+    shot_index: int,
+    reference_index: int,
+    aspect_ratio: str | None,
+    resolution: str | None,
+) -> Path:
+    dimensions = _dimensions_for_aspect_resolution(aspect_ratio, resolution)
+    if dimensions is None:
+        return path
+    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if image is None:
+        return path
+
+    target_width, target_height = dimensions
+    source_height, source_width = image.shape[:2]
+    if source_width <= 0 or source_height <= 0:
+        return path
+
+    scale = min(target_width / source_width, target_height / source_height)
+    fitted_width = max(int(round(source_width * scale)), 1)
+    fitted_height = max(int(round(source_height * scale)), 1)
+    fitted = cv2.resize(image, (fitted_width, fitted_height), interpolation=cv2.INTER_AREA)
+
+    cover_scale = max(target_width / source_width, target_height / source_height)
+    cover_width = max(int(round(source_width * cover_scale)), 1)
+    cover_height = max(int(round(source_height * cover_scale)), 1)
+    background = cv2.resize(image, (cover_width, cover_height), interpolation=cv2.INTER_AREA)
+    offset_x = max((cover_width - target_width) // 2, 0)
+    offset_y = max((cover_height - target_height) // 2, 0)
+    canvas = background[offset_y:offset_y + target_height, offset_x:offset_x + target_width]
+    canvas = cv2.GaussianBlur(canvas, (0, 0), sigmaX=18, sigmaY=18)
+    canvas = cv2.convertScaleAbs(canvas, alpha=0.72, beta=18)
+
+    paste_x = (target_width - fitted_width) // 2
+    paste_y = (target_height - fitted_height) // 2
+    canvas[paste_y:paste_y + fitted_height, paste_x:paste_x + fitted_width] = fitted
+
+    output_path = output_dir / f"shot_{shot_index:03d}_reference_{reference_index:02d}_kling_fit.png"
+    cv2.imwrite(str(output_path), canvas)
+    return output_path
+
+
+def _dimensions_for_aspect_resolution(
+    aspect_ratio: str | None,
+    resolution: str | None,
+) -> tuple[int, int] | None:
+    ratio = (aspect_ratio or "9:16").strip()
+    if ":" not in ratio:
+        return None
+    width_text, height_text = ratio.split(":", 1)
+    try:
+        ratio_width = int(width_text)
+        ratio_height = int(height_text)
+    except ValueError:
+        return None
+    if ratio_width <= 0 or ratio_height <= 0:
+        return None
+
+    short_side = 540
+    cleaned_resolution = (resolution or "").strip().lower()
+    if cleaned_resolution.endswith("p"):
+        try:
+            short_side = int(cleaned_resolution[:-1])
+        except ValueError:
+            short_side = 540
+
+    if ratio_height >= ratio_width:
+        width = short_side
+        height = int(round(width * ratio_height / ratio_width))
+    else:
+        height = short_side
+        width = int(round(height * ratio_width / ratio_height))
+    return width, height
+
+
 def _public_url_for_path(path: Path, run_parameters: RunParameters, settings: Settings) -> str | None:
     base_url = run_parameters.generation.public_asset_base_url
     if not base_url:
@@ -369,8 +453,6 @@ def _derive_video_size(
     run_parameters: RunParameters,
     model_selection: VideoModelSelection,
 ) -> str | None:
-    if model_selection.provider == "google_veo":
-        return None
     if run_parameters.generation.video_size:
         return run_parameters.generation.video_size
     if model_selection.default_size:
@@ -403,8 +485,6 @@ def _derive_resolution(
     run_parameters: RunParameters,
     model_selection: VideoModelSelection,
 ) -> str | None:
-    if model_selection.provider not in {"google_veo", "kling"}:
-        return None
     return run_parameters.generation.video_resolution or model_selection.default_resolution or "720p"
 
 
@@ -419,11 +499,9 @@ def _derive_video_seconds(
         or int(round(duration_s))
     )
     requested = max(int(requested), 1)
-    if model_selection.provider == "google_veo":
-        return _closest_supported_duration(requested, [4, 6, 8])
     if model_selection.provider == "kling":
         return _closest_supported_duration(requested, [5, 10])
-    return _closest_supported_duration(requested, [4, 8, 12, 16, 20])
+    return _closest_supported_duration(requested, [5, 10])
 
 
 def _closest_supported_duration(requested: int, supported: list[int]) -> int:

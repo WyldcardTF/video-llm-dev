@@ -1,60 +1,6 @@
 from __future__ import annotations
 
 import re
-import subprocess
-from pathlib import Path
-
-from .io_utils import ensure_dir
-
-
-def maybe_transcribe_video(
-    video_path: Path,
-    audio_dir: Path,
-    api_key: str | None = None,
-    model_name: str = "whisper-1",
-    max_seconds: int = 60,
-) -> str | None:
-    if not api_key:
-        return None
-
-    ensure_dir(audio_dir)
-    sample_path = audio_dir / f"{video_path.stem}_voice_sample.mp3"
-
-    command = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-i",
-        str(video_path),
-        "-t",
-        str(max_seconds),
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        "16000",
-        "-q:a",
-        "4",
-        str(sample_path),
-    ]
-    subprocess.run(command, check=True, capture_output=True)
-
-    from openai import OpenAI
-
-    client = OpenAI(api_key=api_key)
-
-    with sample_path.open("rb") as audio_handle:
-        transcript = client.audio.transcriptions.create(
-            model=model_name,
-            file=audio_handle,
-        )
-
-    text = getattr(transcript, "text", None)
-    if text:
-        return text.strip() or None
-    return None
 
 
 def describe_voice_style(

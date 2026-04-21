@@ -10,7 +10,7 @@ import numpy as np
 from .config import get_settings
 from .io_utils import ensure_dir, slugify
 from .models import AudioProfile, FrameSample, VideoAnalysis
-from .voice import describe_voice_style, maybe_transcribe_video
+from .voice import describe_voice_style
 
 
 class VideoAnalyzer:
@@ -23,8 +23,6 @@ class VideoAnalyzer:
         audio_dir_name: str | None = None,
         audio_analysis_max_seconds: int | None = None,
         transcription_max_seconds: int | None = None,
-        openai_api_key: str | None = None,
-        openai_transcribe_model: str | None = None,
     ) -> None:
         settings = get_settings()
         resolved_sample_frames = 6 if sample_frames is None else sample_frames
@@ -40,10 +38,6 @@ class VideoAnalyzer:
         )
         self.transcription_max_seconds = (
             60 if transcription_max_seconds is None else transcription_max_seconds
-        )
-        self.openai_api_key = settings.openai_api_key if openai_api_key is None else openai_api_key
-        self.openai_transcribe_model = (
-            "whisper-1" if openai_transcribe_model is None else openai_transcribe_model
         )
 
     def analyze_many(self, video_paths: list[Path], project_dir: Path) -> list[VideoAnalysis]:
@@ -253,18 +247,6 @@ class VideoAnalyzer:
             )
 
         transcript = None
-        if self.transcribe_voice:
-            try:
-                transcript = maybe_transcribe_video(
-                    video_path,
-                    audio_dir,
-                    api_key=self.openai_api_key,
-                    model_name=self.openai_transcribe_model,
-                    max_seconds=self.transcription_max_seconds,
-                )
-            except Exception:
-                transcript = None
-
         mean_level = float(np.mean(np.abs(signal)))
         peak_level = float(np.max(np.abs(signal)))
         silence_ratio = float(np.mean(np.abs(signal) < 0.02))
