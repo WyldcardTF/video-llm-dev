@@ -60,6 +60,10 @@ class Settings:
     google_vertex_access_token: str | None
     kling_api_key: str | None
     kling_base_url: str
+    kling_multi_image_endpoint: str
+    kling_image_endpoint: str
+    kling_text_endpoint: str
+    kling_status_endpoint_template: str
 
     def analyses_path(self, project_dir: Path) -> Path:
         return project_dir / self.video_analyses_filename
@@ -132,4 +136,18 @@ def get_settings() -> Settings:
         google_vertex_access_token=_env_text("GOOGLE_VERTEX_ACCESS_TOKEN"),
         kling_api_key=_env_text("KLING_API_KEY"),
         kling_base_url=_env_text("KLING_BASE_URL", "https://api.klingapi.com") or "https://api.klingapi.com",
+        kling_multi_image_endpoint=_env_text(
+            "KLING_MULTI_IMAGE_ENDPOINT",
+            "/v1/videos/multi-image2video",
+        )
+        or "/v1/videos/multi-image2video",
+        kling_image_endpoint=_env_text("KLING_IMAGE_ENDPOINT", "/v1/videos/image2video")
+        or "/v1/videos/image2video",
+        kling_text_endpoint=_env_text("KLING_TEXT_ENDPOINT", "/v1/videos/text2video")
+        or "/v1/videos/text2video",
+        kling_status_endpoint_template=_env_text(
+            "KLING_STATUS_ENDPOINT_TEMPLATE",
+            "{endpoint}/{task_id}",
+        )
+        or "{endpoint}/{task_id}",
     )

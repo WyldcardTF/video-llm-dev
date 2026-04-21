@@ -29,7 +29,7 @@ Choose a provider/model with `models.video_generation_model` in [run_parameters.
 Useful presets:
 
 1. `kling_2_5_turbo` is the cheapest scratchpad option if your Kling account exposes it.
-2. `kling_2_6_std` is the default cheap early-iteration preset.
+2. `kling_2_6_std` is the default cheap Kling multi-image preset: silent, 5 seconds, 540p.
 3. `veo_3_1_lite` is a lower-cost Google Veo prompt-testing preset.
 4. `veo_3_1_fast` is a faster Veo 3.1 preset with image-reference support.
 5. `kling_2_6_pro` is a stronger Kling 2.6 preset.
@@ -52,9 +52,12 @@ OPENAI_API_KEY=...
 GOOGLE_VERTEX_PROJECT=...
 GOOGLE_VERTEX_LOCATION=us-central1
 KLING_API_KEY=...
+KLING_BASE_URL=https://api.klingapi.com
 ```
 
 Google Veo uses Vertex AI credentials. If `GOOGLE_VERTEX_ACCESS_TOKEN` is blank, the pipeline tries Application Default Credentials and then `gcloud auth print-access-token`.
+
+The default Kling flow uses `POST /v1/videos/multi-image2video` and sends local scene images as base64, so you do not need public image hosting for first tests.
 
 ## Run It
 

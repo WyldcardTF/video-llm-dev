@@ -196,41 +196,32 @@ class KlingVideoProvider(VideoProvider):
             "Authorization": f"Bearer {request.settings.kling_api_key}",
             "Content-Type": "application/json",
         }
-        image_urls = [reference.url for reference in request.references if reference.url and reference.media_kind == "image"]
-        endpoint = "/v1/videos/image2video" if image_urls else "/v1/videos/text2video"
-        payload: dict[str, Any] = {
-            "model": request.model_selection.model,
-            "prompt": request.prompt,
-            "duration": request.duration_seconds,
-            "aspect_ratio": request.aspect_ratio or "9:16",
-            "mode": request.run_parameters.generation.kling_mode
-            or request.model_selection.kling_mode
-            or "standard",
-        }
+        endpoint, payload, used_references = _build_kling_payload(request)
         if request.negative_prompt:
             payload["negative_prompt"] = request.negative_prompt
-        if request.run_parameters.generation.kling_sound or request.model_selection.kling_sound:
-            payload["sound"] = True
-        if image_urls:
-            payload["image_urls"] = image_urls[:1]
 
         response = requests.post(f"{base_url}{endpoint}", headers=headers, json=payload, timeout=60)
         _raise_for_provider_response(response, "Kling generation request failed")
         response_payload = response.json()
-        task_id = _first_value(response_payload, "task_id", "id")
+        task_id = _first_value(response_payload, "task_id", "id", "generation_id")
         if not task_id:
             data = response_payload.get("data")
             if isinstance(data, dict):
-                task_id = _first_value(data, "task_id", "id")
+                task_id = _first_value(data, "task_id", "id", "generation_id")
         if not task_id:
             raise RuntimeError(f"Kling did not return a task id: {response.text}")
 
         poll_interval = max(request.run_parameters.generation.video_poll_interval_ms / 1000.0, 1.0)
+        poll_endpoint = _format_kling_status_endpoint(
+            request.settings.kling_status_endpoint_template,
+            endpoint,
+            str(task_id),
+        )
         while True:
-            poll_response = requests.get(f"{base_url}/v1/videos/{task_id}", headers=headers, timeout=60)
+            poll_response = requests.get(f"{base_url}{poll_endpoint}", headers=headers, timeout=60)
             _raise_for_provider_response(poll_response, "Kling polling failed")
             payload = poll_response.json()
-            status = str(_first_value(payload, "status", "state") or "").lower()
+            status = _kling_status(payload)
             if status in {"failed", "error", "rejected"}:
                 raise RuntimeError(f"Kling generation failed: {payload}")
             video_url = _find_video_url(payload)
@@ -239,14 +230,14 @@ class KlingVideoProvider(VideoProvider):
                 return VideoGenerationResult(
                     asset_path=request.output_path,
                     remote_id=str(task_id),
-                    used_reference_paths=image_urls[:1],
+                    used_reference_paths=used_references,
                 )
             if video_url and not status:
                 _download_http_file(video_url, request.output_path)
                 return VideoGenerationResult(
                     asset_path=request.output_path,
                     remote_id=str(task_id),
-                    used_reference_paths=image_urls[:1],
+                    used_reference_paths=used_references,
                 )
             time.sleep(poll_interval)
 
@@ -332,6 +323,98 @@ def _google_access_token(settings: Settings) -> str:
         "Could not obtain a Google Vertex access token. Set GOOGLE_VERTEX_ACCESS_TOKEN, "
         "configure Application Default Credentials, or run `gcloud auth login`."
     )
+
+
+def _build_kling_payload(request: VideoGenerationRequest) -> tuple[str, dict[str, Any], list[str]]:
+    generation = request.run_parameters.generation
+    mode = generation.kling_generation_mode.strip().lower()
+    image_references = [
+        reference
+        for reference in request.references
+        if reference.media_kind == "image" and _kling_reference_value(reference, generation.kling_local_image_transport)
+    ]
+    min_images = max(generation.kling_multi_image_min_images, 2)
+    max_images = min(max(generation.kling_multi_image_max_images, min_images), 4)
+
+    if mode in {"multi_image_to_video", "multi-image-to-video", "multi_image2video", "multi-image2video"}:
+        if len(image_references) < min_images:
+            raise RuntimeError(
+                "Kling multi-image-to-video needs at least "
+                f"{min_images} image references for each shot. "
+                "Add scene reference_assets images, lower kling_multi_image_min_images, "
+                "or set generation.kling_generation_mode to image_to_video/text_to_video."
+            )
+        selected = image_references[:max_images]
+        payload = _kling_common_payload(request)
+        payload[generation.kling_model_field or "model_name"] = request.model_selection.model
+        payload["image_list"] = [
+            {"image": _kling_reference_value(reference, generation.kling_local_image_transport)}
+            for reference in selected
+        ]
+        return request.settings.kling_multi_image_endpoint, payload, [reference.path for reference in selected]
+
+    image_url_references = [reference for reference in image_references if reference.url]
+    if mode in {"image_to_video", "image2video"} or image_url_references:
+        endpoint = request.settings.kling_image_endpoint
+        payload = _kling_common_payload(request)
+        payload["model"] = request.model_selection.model
+        if image_url_references:
+            payload["image_urls"] = [reference.url for reference in image_url_references[:1]]
+        return endpoint, payload, [reference.path for reference in image_url_references[:1]]
+
+    endpoint = request.settings.kling_text_endpoint
+    payload = _kling_common_payload(request)
+    payload["model"] = request.model_selection.model
+    return endpoint, payload, []
+
+
+def _kling_common_payload(request: VideoGenerationRequest) -> dict[str, Any]:
+    generation = request.run_parameters.generation
+    payload: dict[str, Any] = {
+        "prompt": request.prompt[:1000],
+        "duration": str(request.duration_seconds),
+        "aspect_ratio": request.aspect_ratio or "9:16",
+        "mode": generation.kling_mode or request.model_selection.kling_mode or "standard",
+        "sound": bool(generation.kling_sound or request.model_selection.kling_sound),
+    }
+    if request.resolution:
+        payload["resolution"] = request.resolution
+    if generation.seed is not None:
+        payload["seed"] = generation.seed
+    return payload
+
+
+def _kling_reference_value(reference: PreparedReference, transport: str) -> str | None:
+    if reference.url:
+        return reference.url
+    if transport.strip().lower() != "base64":
+        return None
+    path = Path(reference.path)
+    if not path.exists():
+        return None
+    return _base64_file(path)
+
+
+def _format_kling_status_endpoint(template: str, endpoint: str, task_id: str) -> str:
+    if not template:
+        template = "{endpoint}/{task_id}"
+    endpoint = endpoint.rstrip("/")
+    formatted = template.format(endpoint=endpoint, task_id=task_id)
+    if not formatted.startswith("/"):
+        formatted = "/" + formatted
+    return formatted
+
+
+def _kling_status(payload: dict[str, Any]) -> str:
+    status = str(_first_value(payload, "status", "state", "task_status") or "").lower()
+    data = payload.get("data")
+    if not status and isinstance(data, dict):
+        status = str(_first_value(data, "status", "state", "task_status") or "").lower()
+    if status == "succeed":
+        return "success"
+    if status == "submitted":
+        return "processing"
+    return status
 
 
 def _base64_file(path: Path) -> str:

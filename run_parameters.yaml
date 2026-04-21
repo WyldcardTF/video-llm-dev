@@ -39,6 +39,8 @@ asset_subfolders:
   general_asset_images: Supporting Data/general_assets/images
   closeup_videos: Supporting Data/closeups/videos
   closeup_images: Supporting Data/closeups/images
+  facial_expressions_images: Supporting Data/facial_expressions/images
+  facial_expressions_videos: Supporting Data/facial_expressions/videos
   broll_videos: Supporting Data/broll/videos
   broll_images: Supporting Data/broll/images
   testimonials_videos: Supporting Data/testimonials/videos
@@ -87,26 +89,43 @@ generation:
   # that input. Their role/prompt_hint text is always added to the prompt.
   use_reference_input: true
   reference_mode: auto
-  reference_asset_limit: 3
+  # Kling multi-image accepts 2-4 images. Keep this at 4 so each scene can pass
+  # character, wardrobe, composition, and style/mood references together.
+  reference_asset_limit: 4
 
-  # For Sora/OpenAI and Kling. Leave blank to use the selected preset defaults.
+  # For Sora/OpenAI and some Kling gateways. Leave blank to use preset defaults.
   # Sora examples: 720x1280, 1280x720, 1080x1920, 1920x1080 depending on model.
-  video_size: 720x1280
+  video_size:
 
   # For Google Veo and Kling.
   video_aspect_ratio: "9:16"
-  video_resolution: 720p
+  # Cheap Kling tests should stay at 540p. Increase to 720p or 1080p only after
+  # the prompt/reference setup looks good.
+  video_resolution: 540p
 
-  # Leave blank to use the cheapest supported duration bucket for the selected preset.
+  # Keep this at 5 while testing Kling. Increase to 10 only when you need longer motion.
   # OpenAI: 4/8/12/16/20. Veo: 4/6/8. Kling: 5/10.
-  video_duration_seconds:
+  video_duration_seconds: 5
   video_poll_interval_ms: 2000
 
-  # Kling image-to-video needs publicly reachable image URLs. Local files are still
-  # described in prompts. Set this only if you serve /app/Input somewhere public.
-  public_asset_base_url:
-  kling_mode:
+  # Kling settings:
+  # - multi_image_to_video: best default for your current scene references; sends 2-4 images
+  # - image_to_video: single-image I2V fallback
+  # - text_to_video: prompt-only fallback
+  kling_generation_mode: multi_image_to_video
+  # base64 lets local images work without hosting them. Use url if your gateway rejects base64.
+  kling_local_image_transport: base64
+  # Most Kling multi-image gateways use model_name; older text/image endpoints often use model.
+  kling_model_field: model_name
+  kling_multi_image_min_images: 2
+  kling_multi_image_max_images: 4
+  # Keep audio off while testing. Audio can double cost on some Kling gateways.
   kling_sound: false
+  kling_mode: standard
+
+  # Optional. If you set this, local image references can be converted to public URLs
+  # for gateways that do not accept base64 image_list values.
+  public_asset_base_url:
 
   # Google Veo settings. Leave google_output_gcs_uri blank to request inline video
   # bytes. If you set a gs:// bucket, the pipeline downloads with `gcloud storage cp`.
@@ -121,7 +140,7 @@ models:
 
   # Friendly presets, roughly cheapest to most expensive:
   # - kling_2_5_turbo: very cheap scratchpad if available on your Kling account
-  # - kling_2_6_std: cheap early iteration default
+  # - kling_2_6_std: cheap multi-image default, silent 5s/540p in this file
   # - veo_3_1_lite: low-cost Veo prompt tests
   # - veo_3_1_fast: medium-cost Veo with reference images
   # - kling_2_6_pro: stronger Kling pass

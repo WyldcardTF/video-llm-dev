@@ -40,15 +40,20 @@ class GenerationParameters:
     backend: str = "auto"
     use_reference_input: bool = True
     reference_mode: str = "auto"
-    reference_asset_limit: int = 3
+    reference_asset_limit: int = 4
     video_size: str | None = None
-    video_resolution: str | None = "720p"
+    video_resolution: str | None = "540p"
     video_aspect_ratio: str | None = "9:16"
-    video_duration_seconds: int | None = None
-    video_poll_interval_ms: int = 1000
+    video_duration_seconds: int | None = 5
+    video_poll_interval_ms: int = 2000
     public_asset_base_url: str | None = None
+    kling_generation_mode: str = "multi_image_to_video"
     kling_mode: str | None = None
     kling_sound: bool = False
+    kling_local_image_transport: str = "base64"
+    kling_model_field: str = "model_name"
+    kling_multi_image_min_images: int = 2
+    kling_multi_image_max_images: int = 4
     google_output_gcs_uri: str | None = None
     google_person_generation: str = "allow_adult"
     google_sample_count: int = 1
@@ -330,15 +335,28 @@ def _build_generation(payload: Any) -> GenerationParameters:
         backend=_get_text(payload, "backend", default="auto") or "auto",
         use_reference_input=_get_bool(payload, "use_reference_input", default=True),
         reference_mode=_get_text(payload, "reference_mode", default="auto") or "auto",
-        reference_asset_limit=_get_int(payload, "reference_asset_limit", default=3),
+        reference_asset_limit=_get_int(payload, "reference_asset_limit", default=4),
         video_size=_get_text(payload, "video_size"),
-        video_resolution=_get_text(payload, "video_resolution", default="720p"),
+        video_resolution=_get_text(payload, "video_resolution", default="540p"),
         video_aspect_ratio=_get_text(payload, "video_aspect_ratio", default="9:16"),
-        video_duration_seconds=_get_optional_int(payload, "video_duration_seconds"),
-        video_poll_interval_ms=_get_int(payload, "video_poll_interval_ms", default=1000),
+        video_duration_seconds=_get_optional_int(payload, "video_duration_seconds")
+        if "video_duration_seconds" in payload
+        else 5,
+        video_poll_interval_ms=_get_int(payload, "video_poll_interval_ms", default=2000),
         public_asset_base_url=_get_text(payload, "public_asset_base_url"),
+        kling_generation_mode=_get_text(
+            payload,
+            "kling_generation_mode",
+            default="multi_image_to_video",
+        )
+        or "multi_image_to_video",
         kling_mode=_get_text(payload, "kling_mode"),
         kling_sound=_get_bool(payload, "kling_sound", default=False),
+        kling_local_image_transport=_get_text(payload, "kling_local_image_transport", default="base64")
+        or "base64",
+        kling_model_field=_get_text(payload, "kling_model_field", default="model_name") or "model_name",
+        kling_multi_image_min_images=_get_int(payload, "kling_multi_image_min_images", default=2),
+        kling_multi_image_max_images=_get_int(payload, "kling_multi_image_max_images", default=4),
         google_output_gcs_uri=_get_text(payload, "google_output_gcs_uri"),
         google_person_generation=_get_text(
             payload,

@@ -81,6 +81,8 @@ models:
   video_generation_model: kling_2_6_std
 ```
 
+The current default is intentionally cost-conscious: Kling multi-image-to-video, silent, 5 seconds, `540p`, and up to four scene reference images.
+
 Relative script paths are resolved in this order:
 
 1. `/app/Input/<input_folder>/<script_file>`
@@ -135,6 +137,36 @@ When `generation.backend: auto`, the preset decides the provider:
 1. `sora_2` and `sora_2_pro` use `openai_video`.
 2. `veo_3_1_lite`, `veo_3_1_fast`, and `veo_3_1_quality` use `google_veo`.
 3. `kling_2_5_turbo`, `kling_2_6_std`, and `kling_2_6_pro` use `kling`.
+
+For cheap Kling testing, the most important YAML is:
+
+```yaml
+generation:
+  backend: auto
+  kling_generation_mode: multi_image_to_video
+  kling_local_image_transport: base64
+  video_resolution: 540p
+  video_duration_seconds: 5
+  kling_sound: false
+
+models:
+  video_generation_model: kling_2_6_std
+```
+
+To increase quality later, first try:
+
+```yaml
+models:
+  video_generation_model: kling_2_6_pro
+```
+
+Then consider increasing:
+
+```yaml
+generation:
+  video_resolution: 720p
+  video_duration_seconds: 10
+```
 
 You can inspect presets from the CLI:
 
@@ -212,9 +244,65 @@ Kling:
 
 1. Requires `KLING_API_KEY`.
 2. Uses `KLING_BASE_URL`, defaulting to `https://api.klingapi.com`.
-3. Sends text-to-video requests by default.
-4. Sends image-to-video requests only when an image reference has a public URL.
-5. Polls the returned task id and downloads the result URL.
+3. Uses multi-image-to-video by default.
+4. Sends 2-4 scene images in `image_list`.
+5. Sends local images as base64 by default, so you do not need public hosting for early tests.
+6. Keeps `sound: false`, `duration: "5"`, and `resolution: "540p"` in the default run config.
+7. Polls the returned task id and downloads the result URL.
+
+## Kling Multi-Image To Video
+
+The Kling implementation is designed around the common multi-image flow documented by Kling gateways:
+
+```http
+POST /v1/videos/multi-image2video
+GET  /v1/videos/multi-image2video/{task_id}
+```
+
+The request body looks like:
+
+```json
+{
+  "model_name": "kling-v2.6",
+  "prompt": "Scene prompt...",
+  "duration": "5",
+  "aspect_ratio": "9:16",
+  "resolution": "540p",
+  "mode": "standard",
+  "sound": false,
+  "image_list": [
+    { "image": "<base64 image 1 or public URL>" },
+    { "image": "<base64 image 2 or public URL>" }
+  ]
+}
+```
+
+The important implementation pieces are:
+
+1. `pipeline/video_models.py` maps `kling_2_6_std` to provider `kling` and model `kling-v2.6`.
+2. `pipeline/video_providers.py` builds the Kling payload.
+3. `generation.kling_generation_mode: multi_image_to_video` selects the multi-image endpoint.
+4. `generation.kling_local_image_transport: base64` allows local scene images to be sent without public URLs.
+5. `generation.kling_model_field: model_name` matches multi-image gateways that expect `model_name` instead of `model`.
+6. `generation.kling_multi_image_min_images` and `generation.kling_multi_image_max_images` control the 2-4 image window.
+
+If your Kling gateway uses a different endpoint, you do not need to edit code. Change `.env`:
+
+```bash
+KLING_BASE_URL=https://your-kling-gateway.example.com
+KLING_MULTI_IMAGE_ENDPOINT=/v1/videos/multi-image2video
+KLING_STATUS_ENDPOINT_TEMPLATE={endpoint}/{task_id}
+```
+
+If your gateway rejects base64 and only accepts public URLs:
+
+```yaml
+generation:
+  kling_local_image_transport: url
+  public_asset_base_url: https://your-public-file-host.example.com/Blonde%20Blazer%20Romance
+```
+
+With `url` transport, local paths are converted to public URLs only when `public_asset_base_url` is set. Otherwise they remain prompt-only and the provider will not receive the pixels.
 
 ## Script Reference Assets
 
@@ -325,7 +413,7 @@ Before calling the provider, the stage prepares references:
 2. Local images remain files.
 3. Local videos are converted into frame images for providers that need image references.
 4. Sora/OpenAI image references are resized to the requested output size.
-5. Kling local images get public URLs only if `generation.public_asset_base_url` is set.
+5. Kling local images are sent as base64 by default, or as public URLs when `kling_local_image_transport: url` and `generation.public_asset_base_url` are set.
 
 Duration is snapped to provider-supported buckets:
 

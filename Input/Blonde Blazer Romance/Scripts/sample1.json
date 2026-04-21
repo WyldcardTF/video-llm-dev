@@ -60,9 +60,7 @@
           "prompt_hint": "Use this video for pacing, elegant movement, color treatment, and fashion-promo rhythm.",
           "provider_use": "prompt_and_frame"
         }
-      ],
-      "general_assets_images": ["Scene 1"],
-      "general_assets_video": "Dispatch all Blonde Blazer Romance Scenes.mp4"
+      ]
     }
   ]
 }

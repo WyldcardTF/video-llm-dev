@@ -51,7 +51,7 @@ models:
 Good iteration ladder:
 
 1. `kling_2_5_turbo` for the cheapest scratchpad if available.
-2. `kling_2_6_std` for low-cost early testing.
+2. `kling_2_6_std` for low-cost Kling multi-image testing: silent, 5 seconds, 540p.
 3. `veo_3_1_lite` for low-cost Veo prompt tests.
 4. `veo_3_1_fast` or `kling_2_6_pro` for stronger promising shots.
 5. `sora_2`, `veo_3_1_quality`, or `sora_2_pro` for higher-quality passes.
@@ -81,6 +81,8 @@ Kling:
 KLING_API_KEY=...
 KLING_BASE_URL=https://api.klingapi.com
 ```
+
+For the default Kling setup, that is enough. The pipeline sends 2-4 local scene images as base64 through the multi-image-to-video endpoint.
 
 ## 4. Inspect The Run Config
 
@@ -172,7 +174,7 @@ The pipeline is explicit rather than magical:
 3. Images are inventoried and can be attached to scenes through `reference_assets`.
 4. The model receives semantic text from `role`, `label`, and `prompt_hint`.
 5. The model receives actual image files only when the provider supports that input.
-6. Local Kling image references need `generation.public_asset_base_url` because Kling-style APIs usually expect public image URLs.
+6. Kling multi-image uses local base64 images by default. If your gateway rejects base64, switch to URL transport with `generation.public_asset_base_url`.
 7. 3D models, docs, overlays, brand assets, music, and SFX are inventoried or preserved as structure today, but they are not yet directly rendered into generated video.
 
 ## Provider Reference Behavior
@@ -193,8 +195,9 @@ Google Veo:
 Kling:
 
 1. Uses text prompts.
-2. Can use image-to-video only when an image URL is available.
-3. Local images are still described in the prompt, but they are not uploaded unless you expose them with `generation.public_asset_base_url`.
+2. Uses multi-image-to-video by default when at least two scene images are available.
+3. Sends local image files as base64 by default.
+4. Can switch to public URL transport if your Kling gateway requires URLs.
 
 ## Common Changes
 
@@ -251,7 +254,7 @@ Use `script_file: Scripts/sample1.json` or an absolute path.
 
 Kling ignores local images:
 
-That is expected unless you provide public URLs. Keep using `role` and `prompt_hint`, or set `generation.public_asset_base_url` to a URL that serves your project files.
+Check `generation.kling_local_image_transport`. The default is `base64`, which uploads local image bytes in `image_list`. If your gateway only accepts URLs, set `kling_local_image_transport: url` and provide `generation.public_asset_base_url`.
 
 Google Veo auth fails:
 

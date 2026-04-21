@@ -382,7 +382,7 @@ def _derive_resolution(
     run_parameters: RunParameters,
     model_selection: VideoModelSelection,
 ) -> str | None:
-    if model_selection.provider != "google_veo":
+    if model_selection.provider not in {"google_veo", "kling"}:
         return None
     return run_parameters.generation.video_resolution or model_selection.default_resolution or "720p"
 
