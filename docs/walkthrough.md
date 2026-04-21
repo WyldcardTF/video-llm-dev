@@ -67,6 +67,7 @@ Check:
 3. `models.video_generation_model` is a Kling preset.
 4. `generation.video_aspect_ratio` is `"9:16"`.
 5. `generation.kling_fit_reference_images` is `true` to fit landscape references into portrait-safe frames.
+6. `render.output_width` and `render.output_height` are blank unless you want to override the standard `1080x1920` vertical render.
 
 ## 5. Edit Scene References
 
@@ -110,6 +111,8 @@ python -m pipeline generate --run-config /app/run_parameters.yaml
 
 Generation loads the artifacts, builds a shot plan, prepares Kling references, calls Kling once per shot, and renders the next progressive draft in `/app/Video Output`.
 
+For `9:16`, the renderer uses a standard `1080x1920` delivery canvas by default. Generated clips are fitted into that canvas instead of cover-cropped, so a portrait Kling clip is not accidentally cropped by landscape input-image dimensions.
+
 With `output_file: script1_draft.mp4`, outputs are:
 
 1. `script1_draft_1.mp4`
@@ -123,6 +126,16 @@ python -m json.tool /app/artifacts/script1/shot_plan.json | sed -n '1,280p'
 python -m json.tool /app/artifacts/script1/generated_assets.json | sed -n '1,220p'
 ls -lh "/app/Video Output"
 ```
+
+## Re-Render Without Calling Kling
+
+If the generated Kling clip is good but the final format, crop, overlay, or render size needs adjustment, re-render existing generated assets locally:
+
+```bash
+python -m pipeline render --run-config /app/run_parameters.yaml
+```
+
+This uses `/app/artifacts/script1/shot_plan.json` and the existing generated clips. It does not call Kling or spend credits.
 
 ## Kling Reference Behavior
 

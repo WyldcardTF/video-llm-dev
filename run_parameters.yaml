@@ -78,6 +78,8 @@ planning:
 
 render:
   fps: 24
+  # Leave blank for the standard 9:16 social-video render canvas: 1080x1920.
+  # Set both fields if you need another exact delivery size.
   output_width:
   output_height:
 

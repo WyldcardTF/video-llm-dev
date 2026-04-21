@@ -148,12 +148,11 @@ def _iter_video_frames(
 
         if success and frame is not None:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            last_good_frame = _cover_resize(rgb_frame, frame_size[0], frame_size[1])
+            last_good_frame = _fit_resize(rgb_frame, frame_size[0], frame_size[1])
         elif last_good_frame is None:
             raise RuntimeError(f"Generated video asset for shot {item.index} did not return readable frames.")
 
-        animated = _apply_video_motion(last_good_frame, progress, item.index)
-        graded = _apply_grade(animated, style_profile)
+        graded = _apply_grade(last_good_frame, style_profile)
         yield _draw_overlay(graded, item, style_profile)
 
     capture.release()
@@ -167,6 +166,26 @@ def _cover_resize(image: np.ndarray, width: int, height: int) -> np.ndarray:
     offset_x = max((resized.shape[1] - width) // 2, 0)
     offset_y = max((resized.shape[0] - height) // 2, 0)
     return resized[offset_y:offset_y + height, offset_x:offset_x + width]
+
+
+def _fit_resize(image: np.ndarray, width: int, height: int) -> np.ndarray:
+    source_height, source_width = image.shape[:2]
+    if source_width <= 0 or source_height <= 0:
+        return np.zeros((height, width, 3), dtype=np.uint8)
+
+    scale = min(width / source_width, height / source_height)
+    fitted_width = max(int(round(source_width * scale)), 1)
+    fitted_height = max(int(round(source_height * scale)), 1)
+    fitted = cv2.resize(image, (fitted_width, fitted_height), interpolation=cv2.INTER_AREA)
+
+    background = _cover_resize(image, width, height)
+    background = cv2.GaussianBlur(background, (0, 0), sigmaX=18, sigmaY=18)
+    background = cv2.convertScaleAbs(background, alpha=0.72, beta=18)
+
+    paste_x = (width - fitted_width) // 2
+    paste_y = (height - fitted_height) // 2
+    background[paste_y:paste_y + fitted_height, paste_x:paste_x + fitted_width] = fitted
+    return background
 
 
 def _apply_video_motion(image: np.ndarray, progress: float, shot_index: int) -> np.ndarray:

@@ -159,7 +159,11 @@ The portrait-fit step is important for landscape source images used in a `9:16` 
 
 The renderer lives in [pipeline/render.py](../pipeline/render.py). It expects generated video assets, samples frames at the target FPS, applies light grading and overlays, and writes the final draft.
 
+For `generation.video_aspect_ratio: "9:16"`, the CLI renders to the standard vertical social canvas `1080x1920` unless `render.output_width` and `render.output_height` are explicitly set. Rendered video frames are fit into the canvas with a blurred background instead of cover-cropped, and the renderer no longer adds extra zoom to generated clips. That keeps hairline/chin edges safer when the generated clip is already a tight face shot.
+
 Final output naming is progressive. With `output_file: script1_draft.mp4`, the CLI writes `script1_draft_1.mp4`, then `script1_draft_2.mp4`, and continues upward.
+
+Use `python -m pipeline render --run-config /app/run_parameters.yaml` to re-render the existing shot plan and generated clips without calling Kling again. This is the fastest way to test format, crop, and overlay changes.
 
 ## Useful Commands
 

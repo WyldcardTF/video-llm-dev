@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import typer
@@ -14,12 +14,20 @@ from .ingest import (
     discover_optional_video_files_from_sources,
     merge_unique_video_paths,
 )
-from .io_utils import ensure_dir, write_json
+from .io_utils import ensure_dir, read_json, write_json
 from .planning import build_continuity_profile, plan_from_script
 from .render import render_plan
 from .run_config import RunParameters, load_run_parameters
 from .script_io import load_script_file
-from .models import AssetInventory, ContinuityProfile, ScriptDocument, StyleProfile, VideoAnalysis
+from .models import (
+    AssetInventory,
+    ContinuityProfile,
+    GenerationPlan,
+    ScriptDocument,
+    ShotPlanItem,
+    StyleProfile,
+    VideoAnalysis,
+)
 from .style import build_style_profile, load_style_profile
 from .video_models import list_video_model_presets, resolve_video_model_selection
 
@@ -100,6 +108,27 @@ def _resolve_project_dir(run_parameters: RunParameters, project_dir_override: Pa
     if candidate.is_absolute():
         return candidate
     return settings.pipeline_artifacts_dir / candidate
+
+
+def _style_profile_for_render(style_profile: StyleProfile, run_parameters: RunParameters) -> StyleProfile:
+    dimensions = _render_dimensions(run_parameters)
+    if dimensions is None:
+        return style_profile
+    width, height = dimensions
+    return replace(style_profile, target_width=width, target_height=height)
+
+
+def _render_dimensions(run_parameters: RunParameters) -> tuple[int, int] | None:
+    if run_parameters.render.output_width and run_parameters.render.output_height:
+        return run_parameters.render.output_width, run_parameters.render.output_height
+
+    aspect_ratio = (run_parameters.generation.video_aspect_ratio or "").strip()
+    if aspect_ratio != "9:16":
+        return None
+
+    # 1080x1920 is the standard vertical social-video delivery canvas. Kling
+    # draft clips may arrive smaller, but fitting during render avoids cropping.
+    return 1080, 1920
 
 
 def _resolve_video_paths(
@@ -211,6 +240,35 @@ def _load_trained_asset_inventory(resolved_project_dir: Path) -> AssetInventory:
     return load_asset_inventory(asset_inventory_path)
 
 
+def _load_shot_plan(resolved_project_dir: Path) -> GenerationPlan:
+    shot_plan_path = settings.shot_plan_path(resolved_project_dir)
+    if not shot_plan_path.exists():
+        raise FileNotFoundError(
+            "No shot plan was found for this run. "
+            f"Expected: {shot_plan_path}. "
+            "Run `python -m pipeline generate` at least once, or point to the correct project_dir."
+        )
+    payload = read_json(shot_plan_path)
+    if not isinstance(payload, dict):
+        raise ValueError(f"Shot plan must be a JSON object: {shot_plan_path}")
+    items = [
+        ShotPlanItem(**item)
+        for item in payload.get("items", [])
+        if isinstance(item, dict)
+    ]
+    return GenerationPlan(
+        script=str(payload.get("script", "")),
+        total_duration_s=float(payload.get("total_duration_s", 0.0)),
+        director_note=str(payload.get("director_note", "")),
+        items=items,
+        script_format=str(payload.get("script_format", "json")),
+        script_source_path=payload.get("script_source_path"),
+        continuity_summary=str(payload.get("continuity_summary", "")),
+        generation_backend=str(payload.get("generation_backend", "kling")),
+        script_metadata=payload.get("script_metadata", {}),
+    )
+
+
 def _save_resolved_run_config(run_parameters: RunParameters, project_dir: Path) -> None:
     if not run_parameters.workflow.save_resolved_run_config:
         return
@@ -318,9 +376,10 @@ def generate(
     _save_resolved_run_config(run_parameters, resolved_project_dir)
 
     resolved_output = _next_progressive_output_path(_resolve_output_path(run_parameters, output))
+    render_style_profile = _style_profile_for_render(style_profile, run_parameters)
     render_path = render_plan(
         plan,
-        style_profile,
+        render_style_profile,
         resolved_output,
         fps=run_parameters.render.fps,
         voiceover_path=run_parameters.voiceover_path(settings),
@@ -340,6 +399,40 @@ def generate(
     )
     typer.echo(f"Generated plan with {len(plan.items)} shots for run '{run_parameters.run_name}'.")
     typer.echo(f"Draft video saved to {render_path}")
+
+
+@app.command("render")
+def render_existing(
+    run_config: Path = typer.Option(
+        DEFAULT_RUN_CONFIG_PATH,
+        help="YAML file describing this model run. Defaults to run_parameters.yaml in the repo root.",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        help="Optional override for the output video path. If omitted, the CLI uses output_file from the YAML run config.",
+    ),
+    project_dir: Path | None = typer.Option(
+        None,
+        help="Optional override for the artifact output directory. If omitted, the CLI uses artifact_subdir from the YAML run config.",
+    ),
+) -> None:
+    """Render an existing generated shot plan without calling Kling again."""
+    run_parameters = load_run_parameters(run_config)
+    resolved_project_dir = ensure_dir(_resolve_project_dir(run_parameters, project_dir))
+    ensure_dir(settings.video_output_dir)
+    style_profile = _load_trained_style_profile(resolved_project_dir)
+    plan = _load_shot_plan(resolved_project_dir)
+
+    resolved_output = _next_progressive_output_path(_resolve_output_path(run_parameters, output))
+    render_style_profile = _style_profile_for_render(style_profile, run_parameters)
+    render_path = render_plan(
+        plan,
+        render_style_profile,
+        resolved_output,
+        fps=run_parameters.render.fps,
+        voiceover_path=run_parameters.voiceover_path(settings),
+    )
+    typer.echo(f"Rendered existing generated assets to {render_path}")
 
 
 @app.command()

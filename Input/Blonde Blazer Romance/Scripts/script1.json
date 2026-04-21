@@ -50,7 +50,7 @@
           "path": "Supporting Data/general_assets/images/scene 1/1.png",
           "role": "character",
           "label": "lead talent face reference",
-          "prompt_hint": "Use as the opening frame. Preserve the lead talent's facial proportions, blonde styling, centered eye contact, and full-face beauty framing with forehead, chin, and both cheeks visible.",
+          "prompt_hint": "Use as the primary character reference. Preserve the lead talent's facial proportions, blonde styling, centered eye contact, and full-face beauty framing with forehead, chin, and both cheeks visible.",
           "provider_use": "reference_input",
           "use_asset": true,
           "asset_type": "image"

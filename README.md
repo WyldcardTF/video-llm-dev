@@ -52,9 +52,14 @@ Useful presets:
 python -m pipeline show-run-config --run-config /app/run_parameters.yaml
 python -m pipeline train --run-config /app/run_parameters.yaml
 python -m pipeline generate --run-config /app/run_parameters.yaml
+python -m pipeline render --run-config /app/run_parameters.yaml
 ```
 
 Final renders are progressive. With `output_file: script1_draft.mp4`, the CLI writes `script1_draft_1.mp4`, then `script1_draft_2.mp4`, and so on.
+
+For `9:16`, the final render defaults to a standard `1080x1920` vertical canvas and fits generated clips into the frame instead of cropping them.
+
+Use `render` when you want to re-render existing generated clips without calling Kling again.
 
 ## Scene References
 

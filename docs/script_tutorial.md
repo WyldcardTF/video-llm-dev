@@ -76,4 +76,6 @@ If the mode is `text_to_video`, Kling receives only the text prompt.
 
 Local Kling base64 image references are fitted into the target aspect ratio before upload. This matters when the source image is landscape but the output is `9:16`; fitting keeps the full face visible instead of letting a portrait crop remove half the face.
 
+The final renderer also uses a `1080x1920` canvas for `9:16` and fits generated video frames instead of cover-cropping them. This prevents landscape source-image dimensions from forcing a landscape final render.
+
 Final renders are progressive. With `output_file: script1_draft.mp4`, the CLI writes `script1_draft_1.mp4`, `script1_draft_2.mp4`, and so on.
